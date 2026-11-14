@@ -95,6 +95,21 @@ Godot... --headless --path . --script res://tools/sim.gd -- runs=12   # balance 
 
 Balance numbers and what is still a guess live in [`docs/balance.md`](docs/balance.md).
 
+## Deploy (GitHub Pages)
+
+The playable build lives on the `gh-pages` branch and is served at
+<https://endday.github.io/cdda2d/>.
+
+```
+python tools/build_all.py --only Web
+# copy build/web/* into a clean branch, then force-push it
+```
+
+Notes: GitHub Pages serves `.wasm` as `application/wasm`, and the export is
+single-threaded (`variant/thread_support=false`), so no COOP/COEP headers are needed.
+After deploying, bump the URL query (`?v=2`) or hard-refresh — the browser caches
+`index.pck` / `index.wasm` for a few minutes.
+
 ## License
 
 - **Code** (`src/`, `scenes/`, `tests/`, `tools/`): © the author, all rights reserved
