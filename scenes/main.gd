@@ -119,6 +119,9 @@ func _build_ui() -> void:
 	status_label = _label(layer, "", Vector2(336, 24), 14, Color("#eecb80"))
 	_label(layer, "WASD 走（撞门推开）   E 搜   1 吃   2 喝   3 药   T 修电台   空格 等   F5 存   F9 读   R 重开",
 		Vector2(18, 690), 12, Color("#7d9188"))
+	# CC BY-SA 要求署名：把这行留在画面里，别只写在 README。
+	_label(layer, "Tiles: Cataclysm DDA UltiCa, CC BY-SA 3.0",
+		Vector2(940, 704), 11, Color("#7d9188"))
 
 
 func _panel(parent: Node, rect: Rect2) -> Panel:
