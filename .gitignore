@@ -1,0 +1,17 @@
+# Godot
+.godot/
+*.translation
+
+# 导出产物（Web 版单独发到 gh-pages 分支）
+build/
+
+# 系统垃圾
+Thumbs.db
+.DS_Store
+
+# 本地参考源码（CDDA 克隆、tileset 原图），不进仓库
+_ref/
+
+# Python
+__pycache__/
+*.pyc

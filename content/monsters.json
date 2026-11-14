@@ -1,0 +1,8 @@
+[
+  {"id": "shambler", "name": "蹒跚", "hp": 24, "speed": 100, "damage": 4, "armor": 0, "sight": 8,
+   "desc": "走得很慢，但不怕疼。空手要打八下。"},
+  {"id": "runner", "name": "奔跑者", "hp": 16, "speed": 150, "damage": 3, "armor": 0, "sight": 10,
+   "desc": "快得不像话，一回合能挪两步，追人时最危险。"},
+  {"id": "brute", "name": "壮汉", "hp": 50, "speed": 80, "damage": 9, "armor": 2, "sight": 7,
+   "desc": "一巴掌能把门拍碎，得绕开或者找把刀。"}
+]

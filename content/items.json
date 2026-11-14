@@ -1,0 +1,22 @@
+[
+  {"id": "crowbar", "name": "撬棍", "kind": "tool", "weight": 1.2, "size": [2, 1], "damage": 8, "desc": "撬门、撬柜、当武器。"},
+  {"id": "knife", "name": "小刀", "kind": "weapon", "weight": 0.4, "size": [1, 1], "damage": 6, "desc": "快，但短。"},
+  {"id": "pistol", "name": "手枪", "kind": "weapon", "weight": 0.8, "size": [2, 1], "damage": 12, "desc": "声音很大。"},
+  {"id": "ammo", "name": "手枪弹", "kind": "ammo", "weight": 0.1, "size": [1, 1], "desc": "12 发。"},
+  {"id": "bandage", "name": "绷带", "kind": "med", "weight": 0.05, "size": [1, 1], "heal": 15, "desc": "止血。"},
+  {"id": "medkit", "name": "急救包", "kind": "med", "weight": 0.3, "size": [2, 1], "heal": 40, "desc": "大治疗。"},
+  {"id": "antibiotics", "name": "抗生素", "kind": "med", "weight": 0.1, "size": [1, 1], "cure": 30, "desc": "治感染。"},
+  {"id": "water", "name": "瓶装水", "kind": "water", "weight": 0.5, "size": [1, 1], "hydration": 40, "desc": "喝。"},
+  {"id": "canned_food", "name": "罐头", "kind": "food", "weight": 0.4, "size": [1, 1], "nutrition": 35, "desc": "吃。"},
+  {"id": "purifier", "name": "净水片", "kind": "tool", "weight": 0.05, "size": [1, 1], "desc": "净化脏水。"},
+  {"id": "flashlight", "name": "手电筒", "kind": "tool", "weight": 0.3, "size": [2, 1], "desc": "照亮。"},
+  {"id": "battery", "name": "电池", "kind": "tool", "weight": 0.1, "size": [1, 1], "desc": "给手电筒。"},
+  {"id": "lockpick", "name": "开锁器", "kind": "tool", "weight": 0.1, "size": [1, 1], "desc": "开锁。"},
+  {"id": "tape", "name": "胶带", "kind": "tool", "weight": 0.1, "size": [1, 1], "desc": "修东西。"},
+  {"id": "wire", "name": "电线", "kind": "component", "weight": 0.1, "size": [1, 1], "desc": "修电台。"},
+  {"id": "radio_part", "name": "电台零件", "kind": "component", "weight": 0.5, "size": [1, 1], "desc": "目标物品。"},
+  {"id": "keycard", "name": "钥匙卡", "kind": "tool", "weight": 0.05, "size": [1, 1], "desc": "开某扇门。"},
+  {"id": "armor", "name": "护甲", "kind": "armor", "weight": 3.0, "size": [2, 2], "armor": 3, "desc": "减伤。"},
+  {"id": "backpack", "name": "背包", "kind": "tool", "weight": 1.0, "size": [2, 2], "desc": "扩容。"},
+  {"id": "stimulant", "name": "兴奋剂", "kind": "med", "weight": 0.1, "size": [1, 1], "heal": 5, "desc": "短时加速。"}
+]
