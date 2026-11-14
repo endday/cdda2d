@@ -21,6 +21,7 @@ var monster_data: Dictionary = {}
 var tile_texture: Texture2D
 var actor_texture: Texture2D
 var tiles_meta: Dictionary = {}
+var ui_font: FontFile
 
 ## 整体压一点冷色，别让 UltiCa 的木地板太橘。
 const TINT := Color(0.82, 0.85, 0.9)
@@ -34,10 +35,20 @@ func _ready() -> void:
 	monster_data = ContentDB.index_by_id(monsters)
 	world = World.new(item_data, monster_data)
 	_load_tiles()
+	_load_font()
 	_build_camera()
 	_build_ui()
 	_refresh_ui()
 	queue_redraw()
+
+
+## Web 端没有系统字体兜底，必须自带一份中文字体子集（tools/build_font.py）。
+func _load_font() -> void:
+	var resource: Resource = load("res://content/fonts/ui.otf")
+	if resource is FontFile:
+		ui_font = resource
+	else:
+		push_error("content/fonts/ui.otf 读不到，中文会变方块")
 
 
 func _load_json_array(path: String) -> Array:
@@ -128,6 +139,8 @@ func _label(parent: Node, text: String, pos: Vector2, font_size: int, color: Col
 	var label := Label.new()
 	label.text = text
 	label.position = pos
+	if ui_font != null:
+		label.add_theme_font_override("font", ui_font)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	parent.add_child(label)
