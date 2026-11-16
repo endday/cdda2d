@@ -40,7 +40,8 @@ The presets are in `export_presets.cfg`: `Web`, `Windows`, `Linux`.
 
 | Key | Action |
 |---|---|
-| WASD / arrows | move 1 tile (100 moves)；撞门推开、撞怪就砍；按住会连续走 |
+| WASD / arrows / hjkl | 走一格（100 moves）；按住连续走 |
+| y u b n / 小键盘 7 9 1 3 | 斜走（141 moves，不能切墙角） |
 | i | 背包（按字母使用，i/Esc 关闭） |
 | , | 捡起脚下的东西（CDDA 的 pickup） |
 | e | 交互：站在塔上就是修电台，旁边有门就推开（CDDA 的 examine） |

@@ -14,8 +14,7 @@ extends RefCounted
 const W := 48
 const H := 32
 const FOV_RADIUS := 8
-const MIN_COST := 50          # 最便宜的动作；玩家剩得比这还少就推进世界
-const MONSTER_COST := 100     # 怪物一步/一爪的价格
+const MONSTER_COST := 100     # 怪物一步/一爪的参考价格（实际按动作自己算）
 const SAVE_VERSION := 5
 
 ## 电台目标：站到塔上、带齐三件东西、修 5 回合、然后守 10 回合。
@@ -278,6 +277,9 @@ func take_items_at(actor: Actor) -> Array[String]:
 # ================================================================ 动作
 
 ## 唯一的动作入口。玩家、怪物、测试里的假人全走这里。
+##
+## CDDA 的规则：只要还有 moves（> 0）就能做一次动作，代价可以把它扣成负数，
+## 下个回合补回来。所以斜走 141 从 100 moves 出发是允许的，只是欠 41。
 func perform(actor: Actor, action: Action) -> bool:
 	if actor == null or not actor.alive:
 		return false
@@ -285,10 +287,10 @@ func perform(actor: Actor, action: Action) -> bool:
 	if reason != "":
 		_push_log(reason)
 		return false
-	var cost := action.cost_for(actor)
-	if actor.moves < cost:
-		_push_log("动不了（剩 %d moves），等一下。" % actor.moves)
+	if actor.moves <= 0:
+		_push_log("动不了（没 moves 了），等一下。")
 		return false
+	var cost := action.cost_for(actor)
 	actor.moves -= cost
 	if not action.apply(actor, self):
 		actor.moves += cost
@@ -308,7 +310,7 @@ func settle() -> void:
 	if not player.alive or _in_world_turn:
 		return
 	var guard := 0
-	while player.moves < MIN_COST and player.alive and guard < 10:
+	while player.moves <= 0 and player.alive and guard < 10:
 		advance_turn()
 		guard += 1
 
@@ -480,7 +482,7 @@ func _run_monsters() -> void:
 		if actor == player or not actor.alive:
 			continue
 		var guard := 0
-		while actor.moves >= MONSTER_COST and actor.alive and player.alive and guard < 12:
+		while actor.moves > 0 and actor.alive and player.alive and guard < 12:
 			guard += 1
 			if not MonsterBrain.take_turn(actor, self):
 				break

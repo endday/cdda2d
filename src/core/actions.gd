@@ -4,16 +4,20 @@ extends RefCounted
 
 
 ## 走一格。撞到关着的门会先开门（不移动），下一格才能过去。
+## 斜走按 √2 计价（CDDA 的 `move_cost * M_SQRT2`），而且不能从两个墙角之间穿过去。
 class Walk extends Action:
+	const MOVE_COST := 100
+	const DIAGONAL_COST := 141    # int(100 * sqrt(2))
+
 	var dx: int = 0
 	var dy: int = 0
 
 	func _init(step_x: int, step_y: int) -> void:
 		id = "walk"
 		label = "移动"
-		cost = 100
 		dx = step_x
 		dy = step_y
+		cost = MOVE_COST if dx == 0 or dy == 0 else DIAGONAL_COST
 
 	func can(actor: Variant, world: Variant) -> String:
 		var target: Vector2i = actor.pos + Vector2i(dx, dy)
@@ -21,6 +25,12 @@ class Walk extends Action:
 			return "前面是墙。"
 		if world.is_closed_door(target) and not actor.can_open_doors:
 			return "门关着。"
+		if dx != 0 and dy != 0:
+			# 两个正交邻格都堵住时不许斜穿——CDDA 的 diagonal 检查。
+			var side_a: Vector2i = actor.pos + Vector2i(dx, 0)
+			var side_b: Vector2i = actor.pos + Vector2i(0, dy)
+			if world.is_blocked(side_a) and world.is_blocked(side_b):
+				return "拐角过不去。"
 		return ""
 
 	func apply(actor: Variant, world: Variant) -> bool:
@@ -93,7 +103,8 @@ class Wait extends Action:
 		cost = 100
 
 	func cost_for(actor: Variant) -> int:
-		return mini(cost, actor.moves)
+		# 等：有多少花多少，但至少花 1，别让停在 0 上不推进。
+		return maxi(1, mini(cost, actor.moves))
 
 	func apply(_actor: Variant, _world: Variant) -> bool:
 		return true

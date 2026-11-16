@@ -49,9 +49,11 @@ tools/           build_all.py（Web/Windows/Linux）+ serve_web.py
 ## 当前灰盒做了什么
 
 - 地图：48×32，主街（路面）+ 三栋建筑 + 电台塔；FOV 半径 8，`seen`/`visible` 两套。
-- 时间：CDDA 那套，每个 Actor 每回合 `moves += speed`；走 100、搜 50、用 50、等 100。
-  玩家动到 `moves < 50` 世界推进一回合；空格是「等」，不是「结束回合」。
-- 动作：`World.perform(actor, action)`；走/搜/用/等/打五个动词，玩家和 AI 共用一条路径。
+- 时间：CDDA 那套，每个 Actor 每回合 `moves += speed`；走 100、斜走 141、搜 50、用 50、等 100。
+  **只要 moves > 0 就能做一次动作**（代价可以扣成负数，下回合补回来，CDDA 就是这样）；
+  玩家动到 `moves <= 0` 世界推进一回合。空格是「等」。
+- 动作：`World.perform(actor, action)`；走/斜走/搜/用/等/打，玩家和 AI 共用一条路径。
+  8 向移动，斜走不能切墙角（两个正交邻格都堵就不许穿）。
 - 物品：**原型 + 实例 + 动词注册表**（照 CDDA 的 itype/item/use_methods）。
   `items.json` 只写数据；`ItemUse.register()` 加新玩法；World/UI/存档都不用改。
   加物品 = 加一条 JSON，`ContentDB` 会校验每个 `use_methods.type` 都注册过。
@@ -66,7 +68,7 @@ tools/           build_all.py（Web/Windows/Linux）+ serve_web.py
 - 视觉：UltiCa 贴图；移动有平滑插值（指数平滑），相机跟随，HUD 有血条/需求条/目标提示。
 - 内容：`content/monsters.json` + `ContentDB` 校验（缺字段/重复 id/负数/未注册动词都报）。
 - 存档：F5/F9，`user://save.json`（version 5：物品存实例，不是 id 字符串）。
-- 测试：World / Actions / Combat / Content / Objective / Font 六套，共 109 项检查。
+- 测试：World / Actions / Combat / Content / Objective / Font / Movement 七套，共 121 项检查。
 - 构建：`export_presets.cfg` 有 Web/Windows/Linux；`tools/build_all.py`。
 
 **还没做**：制作、背包格/重量、多地图、场景/搜打撤、音效、回放测试。
@@ -100,7 +102,7 @@ macOS/Android/iOS 要各自 SDK/签名（iOS/macOS 还要 Mac），后面再加�
 1. ~~敌人 + 战斗 + AI~~：已接。
 2. ~~电台目标~~：已接。
 3. ~~物品引擎（原型/实例/动词注册表）+ 背包 UI + 等距渲染~~：已接。
-4. **T1 8 向移动**：斜走 141、不能切角、怪物也斜追。
+4. ~~T1 8 向移动~~：已接（斜走 141、不能切角、怪也斜追、moves 允许欠账）。
 5. **T3 装备位**：wielded / worn，伤害和护甲不再取"身上最好的东西"。
 
 ## 不做（第一版）

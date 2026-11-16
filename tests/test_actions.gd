@@ -71,15 +71,18 @@ func test_monster_cannot_open_door() -> void:
 func test_action_needs_moves() -> void:
 	var world := World.new({})
 	var dummy := _dummy(world, Vector2i(24, 14))
-	dummy.moves = World.MIN_COST
-	_expect(not world.perform(dummy, Actions.Walk.new(1, 0)), "moves 不够走路应失败")
+	dummy.moves = 0
+	_expect(not world.perform(dummy, Actions.Walk.new(1, 0)), "没 moves 不能动")
 	_expect(dummy.pos == Vector2i(24, 14), "失败不该移动")
-	_expect(dummy.moves == World.MIN_COST, "失败不该扣 moves")
+	# CDDA 的规则：只要还有 moves 就能做一次动作，代价可以扣成负数。
+	dummy.moves = 50
+	_expect(world.perform(dummy, Actions.Walk.new(1, 0)), "剩 50 也能走一步（允许欠账）")
+	_expect(dummy.moves == -50, "走完应该是 -50，实际 %d" % dummy.moves)
 
 
 func test_wait_spends_what_is_left() -> void:
 	var world := World.new({})
-	world.player.moves = World.MIN_COST
+	world.player.moves = 50
 	_expect(world.player_wait(), "剩一半 moves 也应该能等")
 	_expect(world.player.moves == 0, "等待应把剩下的 moves 花光，实际 %d" % world.player.moves)
 

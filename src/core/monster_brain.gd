@@ -74,11 +74,13 @@ static func _wander(monster: Variant, world: Variant) -> bool:
 	return false
 
 
-## 朝目标走：先走差得多的那个轴，再走另一个。
+## 朝目标走：斜着最近就走斜的；被堵了再试主轴、次轴。
 static func _steps_toward(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
 	var dx: int = signi(to.x - from.x)
 	var dy: int = signi(to.y - from.y)
 	var out: Array[Vector2i] = []
+	if dx != 0 and dy != 0:
+		out.append(Vector2i(dx, dy))
 	if absi(to.x - from.x) >= absi(to.y - from.y):
 		if dx != 0:
 			out.append(Vector2i(dx, 0))

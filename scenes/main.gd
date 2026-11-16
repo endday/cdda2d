@@ -153,7 +153,7 @@ func _build_ui() -> void:
 
 	status_label = _label(layer, "", Vector2(336, 24), 14, Color("#eecb80"))
 	hint_label = _label(layer,
-		"WASD/方向键 走（撞门推开、撞怪就砍）   i 背包   , 搜   e 交互/修电台   . 等   F5 存   F9 读   R 重开",
+		"WASD/方向键/hjkl 走，yubn 斜走   i 背包   , 搜   e 交互/修电台   . 等   F5 存   F9 读   R 重开",
 		Vector2(18, 690), 12, Color("#7d9188"))
 	# CC BY-SA 要求署名：把这行留在画面里，别只写在 README。
 	_label(layer, "Tiles: Cataclysm DDA UltiCa, CC BY-SA 3.0",
@@ -555,14 +555,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		_move_cooldown = 0.08
 
 	match key:
-		KEY_W, KEY_UP:
+		KEY_W, KEY_UP, KEY_K, KEY_KP_8:
 			world.player_step(0, -1)
-		KEY_S, KEY_DOWN:
+		KEY_S, KEY_DOWN, KEY_J, KEY_KP_2:
 			world.player_step(0, 1)
-		KEY_A, KEY_LEFT:
+		KEY_A, KEY_LEFT, KEY_H, KEY_KP_4:
 			world.player_step(-1, 0)
-		KEY_D, KEY_RIGHT:
+		KEY_D, KEY_RIGHT, KEY_L, KEY_KP_6:
 			world.player_step(1, 0)
+		KEY_Y, KEY_KP_7:
+			world.player_step(-1, -1)
+		KEY_U, KEY_KP_9:
+			world.player_step(1, -1)
+		KEY_B, KEY_KP_1:
+			world.player_step(-1, 1)
+		KEY_N, KEY_KP_3:
+			world.player_step(1, 1)
 		KEY_I:
 			inventory_open = true
 		KEY_COMMA:
@@ -582,7 +590,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _is_move_key(key: int) -> bool:
-	return key in [KEY_W, KEY_A, KEY_S, KEY_D, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
+	return key in [
+		KEY_W, KEY_A, KEY_S, KEY_D, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT,
+		KEY_H, KEY_J, KEY_K, KEY_L, KEY_Y, KEY_U, KEY_B, KEY_N,
+		KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_KP_6, KEY_KP_7, KEY_KP_8, KEY_KP_9,
+	]
 
 
 func _handle_inventory_key(key: int) -> void:
