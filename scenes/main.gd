@@ -7,7 +7,13 @@ const CELL := 32
 const ACTOR_H := 48
 const W := World.W
 const H := World.H
-const ZOOM := 1.5
+## 等距投影：2:1 菱形地砖。一格在屏幕上占 64×32，往上就是墙的高度。
+const ISO_W := 64
+const ISO_H := 32
+const WALL_H := 40
+const DOOR_H := 28
+const ACTOR_SCALE := 1.5
+const ZOOM := 1.1
 const MOVE_SMOOTH := 16.0    # 越大越跟手；16 ≈ 0.15 秒走完一格
 
 var world: World
@@ -26,6 +32,10 @@ var tile_texture: Texture2D
 var actor_texture: Texture2D
 var tiles_meta: Dictionary = {}
 var ui_font: FontFile
+
+var iso_texture: Texture2D
+var iso_cells: Dictionary = {}   # 名字 -> 图集里的序号
+const ISO_NAMES := ["floor", "pavement", "wall", "rock", "door_closed", "door_open"]
 
 ## 每个 Actor 的屏幕位置（世界像素），用来把一格一格的跳变抹成滑动。
 var _visual: Dictionary = {}
@@ -89,6 +99,20 @@ func _load_tiles() -> void:
 	tile_texture = load("res://content/tiles/" + String(parsed.get("tileset", "tileset.png")))
 	var actors: Dictionary = parsed.get("actors", {})
 	actor_texture = load("res://content/tiles/" + String(actors.get("image", "actors.png")))
+	_load_iso()
+
+
+## 等距贴图（tools/build_iso.py 生成）。没有就退回纯色菱形。
+func _load_iso() -> void:
+	var file := FileAccess.open("res://content/tiles/iso.json", FileAccess.READ)
+	if file == null:
+		push_error("content/tiles/iso.json 读不到，跑一下 tools/build_iso.py")
+		return
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	iso_texture = load("res://content/tiles/" + String(parsed.get("image", "iso.png")))
+	iso_cells = parsed.get("tiles", {})
 
 
 ## Web 端没有系统字体兜底，必须自带一份中文字体子集（tools/build_font.py）。
@@ -102,7 +126,7 @@ func _load_font() -> void:
 
 func _build_camera() -> void:
 	camera = Camera2D.new()
-	camera.position = _actor_world_pos(world.player)
+	camera.position = _actor_world_pos(world.player) + Vector2(0, ISO_H / 2.0)
 	camera.zoom = Vector2(ZOOM, ZOOM)
 	add_child(camera)
 
@@ -319,81 +343,163 @@ func _process(delta: float) -> void:
 	# 一格一格的位置用指数平滑抹成滑动，别让它跳。
 	var k: float = 1.0 - exp(-delta * MOVE_SMOOTH)
 	for actor: Actor in world.actors:
-		var target := Vector2(actor.pos) * CELL
+		var target := _iso(actor.pos)
 		var current: Vector2 = _visual.get(actor.id, target)
 		_visual[actor.id] = current.lerp(target, k)
 	var view := get_viewport_rect().size / camera.zoom
 	var half := view / 2.0
-	var target_pos := _actor_world_pos(world.player) + Vector2(CELL / 2.0, CELL / 2.0)
-	if W * CELL > view.x:
-		target_pos.x = clampf(target_pos.x, half.x, W * CELL - half.x)
-	if H * CELL > view.y:
-		target_pos.y = clampf(target_pos.y, half.y, H * CELL - half.y)
+	var target_pos := _actor_world_pos(world.player) + Vector2(0, ISO_H / 2.0)
+	var bounds := _map_bounds()
+	if bounds.size.x > view.x:
+		target_pos.x = clampf(target_pos.x, bounds.position.x + half.x, bounds.end.x - half.x)
+	else:
+		target_pos.x = bounds.get_center().x
+	if bounds.size.y > view.y:
+		target_pos.y = clampf(target_pos.y, bounds.position.y + half.y, bounds.end.y - half.y)
+	else:
+		target_pos.y = bounds.get_center().y
 	camera.position = target_pos
 
 
+## 第 (x,y) 格的菱形顶点在屏幕上的位置（2:1 等距）。
+func _iso(cell: Vector2i) -> Vector2:
+	return Vector2((cell.x - cell.y) * ISO_W / 2.0, (cell.x + cell.y) * ISO_H / 2.0)
+
+
+func _map_bounds() -> Rect2:
+	var left := _iso(Vector2i(0, H - 1)).x - ISO_W / 2.0
+	var right := _iso(Vector2i(W - 1, 0)).x + ISO_W / 2.0
+	var top := -WALL_H - ISO_H
+	var bottom := _iso(Vector2i(W - 1, H - 1)).y + ISO_H * 1.5
+	return Rect2(left, top, right - left, bottom - top)
+
+
 func _actor_world_pos(actor: Actor) -> Vector2:
-	return _visual.get(actor.id, Vector2(actor.pos) * CELL)
+	return _visual.get(actor.id, _iso(actor.pos))
 
 
 func _actor_center(actor: Actor) -> Vector2:
-	return _actor_world_pos(actor) + Vector2(CELL / 2.0, CELL / 2.0)
+	return _actor_world_pos(actor) + Vector2(0, ISO_H / 2.0)
 
 
 func _draw() -> void:
-	draw_rect(Rect2(0, 0, W * CELL, H * CELL), Color("#05080a"))
+	draw_rect(Rect2(-4000, -4000, 12000, 12000), Color("#05080a"))
+	# 1) 地板：等距菱形，先全部铺一遍（它们不互相遮挡）。
 	for y: int in H:
 		for x: int in W:
 			var cell := Vector2i(x, y)
-			if not world.seen.has(cell):
+			if not world.seen.has(cell) or world.is_wall(cell):
 				continue
-			var origin := Vector2(x * CELL, y * CELL)
-			_draw_tile(world.terrain_name(cell), cell)
-			if not world.visible.has(cell):
-				draw_rect(Rect2(origin, Vector2(CELL, CELL)), Color(0.02, 0.03, 0.04, 0.62))
-	for item: Dictionary in world.items:
-		var pos: Vector2i = item["pos"]
-		if not world.visible.has(pos):
-			continue
-		_draw_item(String(item["id"]), Vector2(pos) * CELL)
-	# 怪物：只画玩家看得见的（数据边界，别偷看世界）。
-	for actor: Actor in world.actors:
-		if actor == world.player or not actor.alive:
-			continue
-		if not world.visible.has(actor.pos):
-			continue
-		_draw_actor_at(actor.monster_type, _actor_world_pos(actor))
-	_draw_actor_at("player", _actor_world_pos(world.player))
+			_draw_floor(cell)
+	# 2) 见过但当前看不见的地方压暗（墙由方块自己压暗，别在它脚下再刷一层黑）。
+	for y: int in H:
+		for x: int in W:
+			var cell := Vector2i(x, y)
+			if world.is_wall(cell):
+				continue
+			if world.seen.has(cell) and not world.visible.has(cell):
+				_draw_fog(cell)
+	# 3) 立起来的东西：按 (x+y) 从远到近画，前面自然盖住后面。
+	var cells: Array[Vector2i] = []
+	for y: int in H:
+		for x: int in W:
+			var cell := Vector2i(x, y)
+			if world.seen.has(cell):
+				cells.append(cell)
+	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		if a.x + a.y == b.x + b.y:
+			return a.x < b.x
+		return a.x + a.y < b.x + b.y)
+	for cell: Vector2i in cells:
+		_draw_cell_objects(cell)
 	# 电台塔上的修理点；只画玩家看见时。
 	if world.visible.has(world.repair_site):
-		var site := Rect2(Vector2(world.repair_site) * CELL, Vector2(CELL, CELL))
-		draw_rect(site.grow(-3), Color("#eecb80"), false, 2.0)
+		var pts := _diamond(_iso(world.repair_site))
+		pts.append(pts[0])
+		draw_polyline(pts, Color("#eecb80"), 2.0)
 
 
-func _draw_tile(name: String, cell: Vector2i) -> void:
-	var at: Array = _tile_cells(name, _variant(cell))
-	var origin := Vector2(cell) * CELL
-	if at.is_empty():
-		# 没有贴图就退回纯色，至少看得懂。
-		var fallback := Color("#1b2a33")
-		if name == "wall" or name == "rock":
-			fallback = Color("#0a1014")
-		elif name == "door_closed" or name == "door_open":
-			fallback = Color("#eecb80")
-		draw_rect(Rect2(origin, Vector2(CELL, CELL)), fallback)
+## 一格里立起来/摆在平面上的东西：墙、关着的门、地面物品、角色。
+func _draw_cell_objects(cell: Vector2i) -> void:
+	var visible := world.visible.has(cell)
+	var mod := TINT if visible else TINT.darkened(0.55)
+	if world.is_wall(cell):
+		_draw_block(cell, "wall", WALL_H, mod)
+	elif world.is_closed_door(cell):
+		_draw_block(cell, "door_closed", DOOR_H, mod)
+	if visible:
+		for item: Dictionary in world.items:
+			if item["pos"] == cell:
+				_draw_item(String(item["id"]), cell)
+	for actor: Actor in world.actors:
+		if actor.pos != cell or not actor.alive:
+			continue
+		if actor != world.player and not visible:
+			continue
+		_draw_actor(actor)
+
+
+func _diamond(origin: Vector2) -> PackedVector2Array:
+	return PackedVector2Array([
+		origin + Vector2(0, 0),
+		origin + Vector2(ISO_W / 2.0, ISO_H / 2.0),
+		origin + Vector2(0, ISO_H),
+		origin + Vector2(-ISO_W / 2.0, ISO_H / 2.0),
+	])
+
+
+func _floor_name(cell: Vector2i) -> String:
+	if world.is_door(cell):
+		return "door_open" if world.doors_open.has(cell) else "door_closed"
+	return world.terrain_name(cell)
+
+
+func _draw_floor(cell: Vector2i) -> void:
+	var name := _floor_name(cell)
+	var at := int(iso_cells.get(name, -1))
+	var origin := _iso(cell) - Vector2(ISO_W / 2.0, 0)
+	if iso_texture == null or at < 0:
+		draw_colored_polygon(_diamond(_iso(cell)), Color("#1b2a33"))
 		return
-	draw_texture_rect_region(tile_texture,
-		Rect2(origin, Vector2(CELL, CELL)),
-		Rect2(float(at[0]) * CELL, float(at[1]) * CELL, CELL, CELL), TINT)
+	draw_texture_rect_region(iso_texture,
+		Rect2(origin, Vector2(ISO_W, ISO_H)),
+		Rect2(at * ISO_W, 0, ISO_W, ISO_H), TINT)
 
 
-func _draw_item(item_id: String, origin: Vector2) -> void:
+func _draw_fog(cell: Vector2i) -> void:
+	draw_colored_polygon(_diamond(_iso(cell)), Color(0.02, 0.03, 0.04, 0.62))
+
+
+## 一个方块：两个侧面 + 顶面。看起来像有高度的墙。
+func _draw_block(cell: Vector2i, texture_name: String, height: float, mod: Color) -> void:
+	var top := _iso(cell)
+	var left := top + Vector2(-ISO_W / 2.0, ISO_H / 2.0)
+	var right := top + Vector2(ISO_W / 2.0, ISO_H / 2.0)
+	var bottom := top + Vector2(0, ISO_H)
+	var up := Vector2(0, -height)
+	draw_colored_polygon(PackedVector2Array([left, bottom, bottom + up, left + up]),
+		Color(0.26, 0.22, 0.19) * mod)
+	draw_colored_polygon(PackedVector2Array([bottom, right, right + up, bottom + up]),
+		Color(0.17, 0.145, 0.13) * mod)
+	var at := int(iso_cells.get(texture_name, -1))
+	if iso_texture == null or at < 0:
+		draw_colored_polygon(PackedVector2Array([top + up, right + up, bottom + up, left + up]),
+			Color("#2a2a2a") * mod)
+		return
+	draw_texture_rect_region(iso_texture,
+		Rect2(top + up - Vector2(ISO_W / 2.0, 0), Vector2(ISO_W, ISO_H)),
+		Rect2(at * ISO_W, 0, ISO_W, ISO_H), mod)
+
+
+func _draw_item(item_id: String, cell: Vector2i) -> void:
 	var at: Array = _tile_cells("item_" + item_id, 0)
-	if at.is_empty():
-		draw_rect(Rect2(origin + Vector2(9, 9), Vector2(14, 14)), Color("#eecb80"))
+	var center := _iso(cell) + Vector2(0, ISO_H * 0.5)
+	if at.is_empty() or tile_texture == null:
+		draw_rect(Rect2(center - Vector2(6, 6), Vector2(12, 12)), Color("#eecb80"))
 		return
+	var size := Vector2(34, 34)
 	draw_texture_rect_region(tile_texture,
-		Rect2(origin, Vector2(CELL, CELL)),
+		Rect2(center - Vector2(size.x / 2.0, size.y / 2.0 + 8), size),
 		Rect2(float(at[0]) * CELL, float(at[1]) * CELL, CELL, CELL), TINT)
 
 
@@ -414,17 +520,18 @@ func _variant(_cell: Vector2i) -> int:
 	return 0
 
 
-func _draw_actor_at(name: String, origin: Vector2) -> void:
-	var actors: Dictionary = tiles_meta.get("actors", {})
-	var frames: Dictionary = actors.get("frames", {})
+## 角色是立绘：脚踩在菱形中心，按 1.5 倍画，跟 64×32 的地砖比例协调。
+func _draw_actor(actor: Actor) -> void:
+	var center := _actor_center(actor)
+	var name := "player" if actor.is_player else actor.monster_type
+	var frames: Dictionary = tiles_meta.get("actors", {}).get("frames", {})
 	if actor_texture == null or not frames.has(name):
-		draw_circle(origin + Vector2(CELL / 2.0, CELL / 2.0), 11, Color("#9fe4bb"))
+		draw_circle(center, 10, Color("#9fe4bb"))
 		return
 	var index := int(frames[name])
-	# 角色图是 32×48，脚在格子底部。
-	var top := Vector2(origin.x, origin.y + CELL - ACTOR_H)
+	var size := Vector2(CELL * ACTOR_SCALE, ACTOR_H * ACTOR_SCALE)
 	draw_texture_rect_region(actor_texture,
-		Rect2(top, Vector2(CELL, ACTOR_H)),
+		Rect2(center.x - size.x / 2.0, center.y - size.y + 6, size.x, size.y),
 		Rect2(index * CELL, 0, CELL, ACTOR_H))
 
 

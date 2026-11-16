@@ -1,0 +1,13 @@
+{
+  "image": "iso.png",
+  "width": 64,
+  "height": 32,
+  "tiles": {
+    "floor": 0,
+    "pavement": 1,
+    "wall": 2,
+    "rock": 3,
+    "door_closed": 4,
+    "door_open": 5
+  }
+}
