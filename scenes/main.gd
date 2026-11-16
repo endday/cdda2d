@@ -1,6 +1,6 @@
 extends Node2D
-## CDDA2D 灰盒适配层：2D 俯视、FOV、HUD、输入。
-## 规则在 World + Action；这里只画和翻译输入。
+## CDDA2D 适配层：2D 俯视、FOV、HUD、输入、物品栏。
+## 规则在 World + Action + ItemUse；这里只画和翻译输入。
 ## 贴图来自 CDDA 的 UltiCa tileset（CC BY-SA 3.0，见 content/tiles/CREDITS.md）。
 
 const CELL := 32
@@ -8,6 +8,7 @@ const ACTOR_H := 48
 const W := World.W
 const H := World.H
 const ZOOM := 1.5
+const MOVE_SMOOTH := 16.0    # 越大越跟手；16 ≈ 0.15 秒走完一格
 
 var world: World
 var camera: Camera2D
@@ -15,13 +16,23 @@ var labels: Dictionary = {}
 var bars: Dictionary = {}
 var log_label: Label
 var status_label: Label
-var item_data: Dictionary = {}
-var monster_data: Dictionary = {}
+var hint_label: Label
+
+var inv_panel: Panel
+var inv_label: Label
+var inventory_open := false
 
 var tile_texture: Texture2D
 var actor_texture: Texture2D
 var tiles_meta: Dictionary = {}
 var ui_font: FontFile
+
+## 每个 Actor 的屏幕位置（世界像素），用来把一格一格的跳变抹成滑动。
+var _visual: Dictionary = {}
+var _move_cooldown := 0.0     # 按住方向键时限制节奏，别让动画追不上
+
+var item_data: Dictionary = {}
+var monster_data: Dictionary = {}
 
 ## 整体压一点冷色，别让 UltiCa 的木地板太橘。
 const TINT := Color(0.82, 0.85, 0.9)
@@ -40,15 +51,6 @@ func _ready() -> void:
 	_build_ui()
 	_refresh_ui()
 	queue_redraw()
-
-
-## Web 端没有系统字体兜底，必须自带一份中文字体子集（tools/build_font.py）。
-func _load_font() -> void:
-	var resource: Resource = load("res://content/fonts/ui.otf")
-	if resource is FontFile:
-		ui_font = resource
-	else:
-		push_error("content/fonts/ui.otf 读不到，中文会变方块")
 
 
 func _load_json_array(path: String) -> Array:
@@ -89,9 +91,18 @@ func _load_tiles() -> void:
 	actor_texture = load("res://content/tiles/" + String(actors.get("image", "actors.png")))
 
 
+## Web 端没有系统字体兜底，必须自带一份中文字体子集（tools/build_font.py）。
+func _load_font() -> void:
+	var resource: Resource = load("res://content/fonts/ui.otf")
+	if resource is FontFile:
+		ui_font = resource
+	else:
+		push_error("content/fonts/ui.otf 读不到，中文会变方块")
+
+
 func _build_camera() -> void:
 	camera = Camera2D.new()
-	camera.position = _player_center()
+	camera.position = _actor_world_pos(world.player)
 	camera.zoom = Vector2(ZOOM, ZOOM)
 	add_child(camera)
 
@@ -117,11 +128,17 @@ func _build_ui() -> void:
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	status_label = _label(layer, "", Vector2(336, 24), 14, Color("#eecb80"))
-	_label(layer, "WASD 走（撞门推开）   E 搜   1 吃   2 喝   3 药   T 修电台   空格 等   F5 存   F9 读   R 重开",
+	hint_label = _label(layer,
+		"WASD/方向键 走（撞门推开、撞怪就砍）   i 背包   , 搜   e 交互/修电台   . 等   F5 存   F9 读   R 重开",
 		Vector2(18, 690), 12, Color("#7d9188"))
 	# CC BY-SA 要求署名：把这行留在画面里，别只写在 README。
 	_label(layer, "Tiles: Cataclysm DDA UltiCa, CC BY-SA 3.0",
 		Vector2(940, 704), 11, Color("#7d9188"))
+
+	inv_panel = _panel(layer, Rect2(18, 176, 340, 396))
+	inv_panel.visible = false
+	inv_label = _label(inv_panel, "", Vector2(14, 10), 13, Color("#c3d0b9"))
+	inv_label.size = Vector2(312, 372)
 
 
 func _panel(parent: Node, rect: Rect2) -> Panel:
@@ -129,8 +146,8 @@ func _panel(parent: Node, rect: Rect2) -> Panel:
 	panel.position = rect.position
 	panel.size = rect.size
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.035, 0.05, 0.06, 0.86)
-	style.border_color = Color(1, 1, 1, 0.08)
+	style.bg_color = Color(0.035, 0.05, 0.06, 0.92)
+	style.border_color = Color(1, 1, 1, 0.1)
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(3)
 	panel.add_theme_stylebox_override("panel", style)
@@ -194,6 +211,9 @@ func _refresh_ui() -> void:
 		lines.append(world.log_lines[i])
 	log_label.text = "\n".join(lines)
 	status_label.text = _status_text()
+	inv_panel.visible = inventory_open
+	if inventory_open:
+		inv_label.text = _inventory_text()
 
 
 func _status_text() -> String:
@@ -210,11 +230,15 @@ func _status_text() -> String:
 		return "守住 %d 回合！%s" % [world.defense_left, threat]
 	if not world.activity.is_empty():
 		return "修理中……还剩 %d 回合，别乱动。%s" % [int(world.activity["turns_left"]), threat]
+	return "目标：找齐 零件/电池/电线（%d/3），站到电台塔上按 e 修。%s" % [_parts_have(), threat]
+
+
+func _parts_have() -> int:
 	var have := 0
 	for part: String in World.REPAIR_PARTS:
-		if world.player.inventory.has(part):
+		if world.player.has_item(part):
 			have += 1
-	return "目标：找齐 零件/电池/电线（%d/3），到电台塔上按 T 修。%s" % [have, threat]
+	return have
 
 
 func _pack_summary() -> String:
@@ -222,30 +246,98 @@ func _pack_summary() -> String:
 	if p.inventory.is_empty():
 		return "背包空"
 	var names: Array[String] = []
-	for id: String in p.inventory.slice(0, 6):
-		names.append(world.item_name(id))
-	var more := p.inventory.size() - names.size()
-	return "背包：" + ", ".join(names) + (" 等 %d 件" % p.inventory.size() if more > 0 else "")
+	for item: Item in p.inventory.slice(0, 5):
+		names.append(world.item_name(item.type_id))
+	return "背包：" + ", ".join(names)
+
+
+# ================================================================ 物品栏
+
+func _toggle_inventory() -> void:
+	inventory_open = not inventory_open
+	_refresh_ui()
+	queue_redraw()
+
+
+func _inventory_text() -> String:
+	var p := world.player
+	var lines: Array[String] = ["—— 背包（按字母使用，i/Esc 关闭）——"]
+	if p.inventory.is_empty():
+		lines.append("（空）")
+		return "\n".join(lines)
+	for i: int in p.inventory.size():
+		var item: Item = p.inventory[i]
+		var letter := char("a".unicode_at(0) + i)
+		var name := world.item_name(item.type_id)
+		lines.append("%s) %s   %s" % [letter, name, _item_summary(item)])
+		if i >= 25:
+			lines.append("……")
+			break
+	return "\n".join(lines)
+
+
+## 这件东西能干嘛——直接读 use_methods，加新物品不用改这里。
+func _item_summary(item: Item) -> String:
+	var proto: Dictionary = item.prototype(item_data)
+	var melee: Dictionary = proto.get("melee", {})
+	var parts: Array[String] = []
+	for method: Variant in proto.get("use_methods", []):
+		if typeof(method) != TYPE_DICTIONARY:
+			continue
+		var m: Dictionary = method
+		match String(m.get("type", "")):
+			"consume":
+				if int(m.get("quench", 0)) > 0:
+					parts.append("喝 +%d" % int(m["quench"]))
+				if int(m.get("calories", 0)) > 0:
+					parts.append("吃 +%d" % int(m["calories"]))
+			"heal":
+				if int(m.get("heal", 0)) > 0:
+					parts.append("治 +%d" % int(m["heal"]))
+				if int(m.get("cure", 0)) > 0:
+					parts.append("抗感染 +%d" % int(m["cure"]))
+			"transform":
+				parts.append("开关")
+			_:
+				parts.append(String(m.get("type", "")))
+	if melee.has("damage"):
+		parts.append("伤害 %d" % int(melee["damage"]))
+	if proto.has("armor"):
+		parts.append("护甲 %d" % int(proto["armor"]))
+	if parts.is_empty():
+		return "—"
+	return "｜".join(parts)
 
 
 # ================================================================ 渲染
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if _move_cooldown > 0.0:
+		_move_cooldown = maxf(0.0, _move_cooldown - delta)
 	if camera == null:
 		return
-	# 相机跟人走，但夹在地图里，别把地图外的空白露出来。
+	# 一格一格的位置用指数平滑抹成滑动，别让它跳。
+	var k: float = 1.0 - exp(-delta * MOVE_SMOOTH)
+	for actor: Actor in world.actors:
+		var target := Vector2(actor.pos) * CELL
+		var current: Vector2 = _visual.get(actor.id, target)
+		_visual[actor.id] = current.lerp(target, k)
 	var view := get_viewport_rect().size / camera.zoom
 	var half := view / 2.0
-	var target := _player_center()
+	var target_pos := _actor_world_pos(world.player) + Vector2(CELL / 2.0, CELL / 2.0)
 	if W * CELL > view.x:
-		target.x = clampf(target.x, half.x, W * CELL - half.x)
+		target_pos.x = clampf(target_pos.x, half.x, W * CELL - half.x)
 	if H * CELL > view.y:
-		target.y = clampf(target.y, half.y, H * CELL - half.y)
-	camera.position = target
+		target_pos.y = clampf(target_pos.y, half.y, H * CELL - half.y)
+	camera.position = target_pos
 
 
-func _player_center() -> Vector2:
-	return Vector2(world.player.pos) * CELL + Vector2(CELL / 2.0, CELL / 2.0)
+func _actor_world_pos(actor: Actor) -> Vector2:
+	return _visual.get(actor.id, Vector2(actor.pos) * CELL)
+
+
+func _actor_center(actor: Actor) -> Vector2:
+	return _actor_world_pos(actor) + Vector2(CELL / 2.0, CELL / 2.0)
 
 
 func _draw() -> void:
@@ -270,8 +362,8 @@ func _draw() -> void:
 			continue
 		if not world.visible.has(actor.pos):
 			continue
-		_draw_actor(actor.monster_type, actor.pos)
-	_draw_actor("player", world.player.pos)
+		_draw_actor_at(actor.monster_type, _actor_world_pos(actor))
+	_draw_actor_at("player", _actor_world_pos(world.player))
 	# 电台塔上的修理点；只画玩家看见时。
 	if world.visible.has(world.repair_site):
 		var site := Rect2(Vector2(world.repair_site) * CELL, Vector2(CELL, CELL))
@@ -322,26 +414,39 @@ func _variant(_cell: Vector2i) -> int:
 	return 0
 
 
-func _draw_actor(name: String, cell: Vector2i) -> void:
+func _draw_actor_at(name: String, origin: Vector2) -> void:
 	var actors: Dictionary = tiles_meta.get("actors", {})
 	var frames: Dictionary = actors.get("frames", {})
 	if actor_texture == null or not frames.has(name):
-		draw_circle(Vector2(cell) * CELL + Vector2(CELL / 2.0, CELL / 2.0), 11, Color("#9fe4bb"))
+		draw_circle(origin + Vector2(CELL / 2.0, CELL / 2.0), 11, Color("#9fe4bb"))
 		return
 	var index := int(frames[name])
 	# 角色图是 32×48，脚在格子底部。
-	var origin := Vector2(cell.x * CELL, cell.y * CELL + CELL - ACTOR_H)
+	var top := Vector2(origin.x, origin.y + CELL - ACTOR_H)
 	draw_texture_rect_region(actor_texture,
-		Rect2(origin, Vector2(CELL, ACTOR_H)),
+		Rect2(top, Vector2(CELL, ACTOR_H)),
 		Rect2(index * CELL, 0, CELL, ACTOR_H))
 
 
 # ================================================================ 输入
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventKey) or not event.pressed or event.echo:
+	if not (event is InputEventKey) or not event.pressed:
 		return
 	var key := (event as InputEventKey).keycode
+
+	if inventory_open:
+		_handle_inventory_key(key)
+		_after_action()
+		return
+	# CDDA 里按住方向键会一直走；这里放行方向键的连发，其它键只要按一次。
+	if event.echo and not _is_move_key(key):
+		return
+	if _is_move_key(key):
+		if _move_cooldown > 0.0:
+			return
+		_move_cooldown = 0.08
+
 	match key:
 		KEY_W, KEY_UP:
 			world.player_step(0, -1)
@@ -351,40 +456,44 @@ func _unhandled_input(event: InputEvent) -> void:
 			world.player_step(-1, 0)
 		KEY_D, KEY_RIGHT:
 			world.player_step(1, 0)
-		KEY_E:
+		KEY_I:
+			inventory_open = true
+		KEY_COMMA:
 			world.player_loot()
-		KEY_1:
-			_use_first("food")
-		KEY_2:
-			_use_first("water")
-		KEY_3:
-			_use_first("med")
-		KEY_SPACE:
+		KEY_E:
+			world.player_examine()
+		KEY_PERIOD, KEY_5, KEY_SPACE:
 			world.player_wait()
-		KEY_T:
-			world.player_repair()
 		KEY_F5:
 			_save()
 		KEY_F9:
 			_load()
 		KEY_R:
 			world = World.new(item_data, monster_data)
+			_visual.clear()
 	_after_action()
 
 
-func _use_first(kind: String) -> void:
-	for id: String in world.player.inventory:
-		var data: Dictionary = world.item_db.get(id, {})
-		if String(data.get("kind", "")) == kind:
-			world.player_use(id)
-			return
-	world.log_message("没有可用的 %s。" % kind)
+func _is_move_key(key: int) -> bool:
+	return key in [KEY_W, KEY_A, KEY_S, KEY_D, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]
+
+
+func _handle_inventory_key(key: int) -> void:
+	if key == KEY_I or key == KEY_ESCAPE:
+		inventory_open = false
+		return
+	if key < KEY_A or key > KEY_Z:
+		return
+	var index: int = key - KEY_A
+	var items := world.player.inventory
+	if index < 0 or index >= items.size():
+		return
+	world.player_use(items[index])
 
 
 func _after_action() -> void:
 	world.settle()
 	refresh_ui()
-	queue_redraw()
 
 
 ## 让外部（截图工具、将来的 UI 层）能强制刷新一次。
@@ -414,4 +523,5 @@ func _load() -> void:
 	if not world.from_dict(parsed):
 		world.log_message("存档版本不认，按 R 重开。")
 		return
+	_visual.clear()
 	world.log_message("已读档。")

@@ -8,8 +8,7 @@ extends RefCounted
 ##
 ## 这里不碰文件——只管已经解析好的 Array/Dictionary，方便单测。
 
-const ITEM_KINDS := ["food", "water", "med", "weapon", "tool", "component", "ammo", "armor"]
-const ITEM_NUMERIC := ["weight", "damage", "heal", "cure", "nutrition", "hydration", "armor"]
+const ITEM_NUMERIC := ["weight", "volume", "armor"]
 
 
 static func index_by_id(entries: Array) -> Dictionary:
@@ -40,20 +39,38 @@ static func validate_items(entries: Array) -> Array[String]:
 		seen[item_id] = true
 		if String(item.get("name", "")).is_empty():
 			problems.append("items[%s] 缺 name" % item_id)
-		var kind := String(item.get("kind", ""))
-		if kind.is_empty():
-			problems.append("items[%s] 缺 kind" % item_id)
-		elif not ITEM_KINDS.has(kind):
-			problems.append("items[%s] 的 kind 不认识：%s" % [item_id, kind])
 		for field: String in ITEM_NUMERIC:
 			if item.has(field) and float(item[field]) < 0.0:
 				problems.append("items[%s] 的 %s 不能是负数" % [item_id, field])
-		if item.has("size"):
-			var size: Variant = item["size"]
-			if typeof(size) != TYPE_ARRAY or (size as Array).size() != 2:
-				problems.append("items[%s] 的 size 应该是 [宽, 高]" % item_id)
-			elif int(size[0]) <= 0 or int(size[1]) <= 0:
-				problems.append("items[%s] 的 size 必须是正数" % item_id)
+		if item.has("flags") and typeof(item["flags"]) != TYPE_ARRAY:
+			problems.append("items[%s] 的 flags 应该是数组" % item_id)
+		if item.has("melee"):
+			if typeof(item["melee"]) != TYPE_DICTIONARY:
+				problems.append("items[%s] 的 melee 应该是对象" % item_id)
+			elif float((item["melee"] as Dictionary).get("damage", 0)) < 0.0:
+				problems.append("items[%s] 的 melee.damage 不能是负数" % item_id)
+		problems.append_array(_validate_use_methods(item_id, item.get("use_methods", [])))
+	return problems
+
+
+## use_methods 里的 type 必须有人注册，否则这件物品在游戏里就是死的。
+static func _validate_use_methods(item_id: String, methods: Variant) -> Array[String]:
+	var problems: Array[String] = []
+	if methods == null:
+		return problems
+	if typeof(methods) != TYPE_ARRAY:
+		return ["items[%s] 的 use_methods 应该是数组" % item_id]
+	for j: int in (methods as Array).size():
+		var method: Variant = methods[j]
+		if typeof(method) != TYPE_DICTIONARY:
+			problems.append("items[%s].use_methods[%d] 不是对象" % [item_id, j])
+			continue
+		var type := String((method as Dictionary).get("type", ""))
+		if type.is_empty():
+			problems.append("items[%s].use_methods[%d] 缺 type" % [item_id, j])
+		elif not ItemUse.has(type):
+			problems.append("items[%s] 用了未注册的动词 %s（已注册：%s）"
+				% [item_id, type, ", ".join(ItemUse.known_types())])
 	return problems
 
 

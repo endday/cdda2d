@@ -13,19 +13,18 @@ const FIST_DAMAGE := 3
 ## 武器伤害取「身上能打的东西里最高的那个」。还没有装备位，先这样。
 static func weapon_damage(actor: Actor, item_db: Dictionary) -> int:
 	var best: int = maxi(FIST_DAMAGE, actor.damage)
-	for item_id: String in actor.inventory:
-		var data: Dictionary = item_db.get(item_id, {})
-		if data.has("damage"):
-			best = maxi(best, int(data["damage"]))
+	for item: Item in actor.inventory:
+		var melee: Dictionary = item.prototype(item_db).get("melee", {})
+		if melee.has("damage"):
+			best = maxi(best, int(melee["damage"]))
 	return best
 
 
 ## 护甲同理：取身上最厚的那件。
 static func armor_of(actor: Actor, item_db: Dictionary) -> int:
 	var best: int = actor.armor
-	for item_id: String in actor.inventory:
-		var data: Dictionary = item_db.get(item_id, {})
-		best = maxi(best, int(data.get("armor", 0)))
+	for item: Item in actor.inventory:
+		best = maxi(best, int(item.prototype(item_db).get("armor", 0)))
 	return best
 
 

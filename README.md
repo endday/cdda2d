@@ -40,21 +40,23 @@ The presets are in `export_presets.cfg`: `Web`, `Windows`, `Linux`.
 
 | Key | Action |
 |---|---|
-| WASD / arrows | move 1 tile (100 moves)；撞上关着的门会先推开，不移动 |
-| WASD into an enemy | 撞过去就是打（bump attack） |
-| E | loot the tile you stand on (50 moves) |
-| 1 / 2 / 3 | eat / drink / use meds (50 moves) |
-| Space | wait — 把剩下的 moves 花掉，时间往前走（CDDA 里空格就是这个动作） |
-| T | 在电台塔上修电台（要 5 回合，动一下就断） |
+| WASD / arrows | move 1 tile (100 moves)；撞门推开、撞怪就砍；按住会连续走 |
+| i | 背包（按字母使用，i/Esc 关闭） |
+| , | 捡起脚下的东西（CDDA 的 pickup） |
+| e | 交互：站在塔上就是修电台，旁边有门就推开（CDDA 的 examine） |
+| . 或 5 或空格 | 等一回合（CDDA 的 pause） |
 | F5 / F9 | save / load `user://save.json` |
 | R | restart |
+
+> 键位对齐 CDDA：`i` 背包、`.` 等待、`,` 捡东西、`e` 交互，都来自
+> `data/raw/keybindings.json`。移动仍是 4 向（CDDA 是 8 向）。
 
 ## The run
 
 1. 在街上醒来，往北进建筑搜刮：**零件 / 电池 / 电线** 是电台要的三件东西。
 2. 东西在第三栋建筑里，那儿有只壮汉守着。
-3. 回街上、沿电台塔的通道下去，站到塔里按 **T** 开始修（5 回合，期间别动）。
-4. 修通后守 **10 回合**：每 3 回合从通道刷一只蹒跚，门开着它们会进来。
+3. 回街上、沿电台塔的通道下去，站到塔里按 **e** 开始修（5 回合，期间别动）。
+4. 修通后守 **10 回合**：每 2 回合从塔内冒一只蹒跚。
 5. 死了看撑到第几回合；活着就是通关。
 
 ## Status

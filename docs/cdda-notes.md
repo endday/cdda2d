@@ -38,6 +38,33 @@
 长动作（制作、修电台、守塔）必须是 `Activity` 对象，每回合推进、可被打断。
 把"修电台"做成一次按键结算，等于扔掉这个游戏最重要的张力。
 
+## 2.5 物品怎么驱动交互（复刻的重点）
+
+CDDA 的物品分成三层，我们照着抄：
+
+| 层 | CDDA | 我们 |
+|---|---|---|
+| 原型 | `itype`（`src/item.h`），JSON 定义，共享 | `content/items.json` 里的条目 |
+| 实例 | `item`，只有 id + 会变的状态（`charges`/`active`） | `src/core/item.gd` |
+| 动词 | `use_methods` 里写 `{"type": "..."}`，引擎按 type 找 `iuse_actor` 子类执行（`src/iuse_actor.cpp`） | `src/core/item_use.gd` 的注册表 |
+
+所以物品 JSON 里只有数据，没有分支：
+
+```json
+{"id": "water", "name": "瓶装水",
+ "use_methods": [{"type": "consume", "quench": 40, "msg": "瓶装水"}]}
+```
+
+- **加一件物品**：往 `items.json` 加一条，挑一个已有的 `type`。代码零改动。
+- **加一种玩法**：`ItemUse.register("type", can, use)`，再在 JSON 里用。World / UI / 存档都不用动。
+- **写错动词**：`ContentDB` 校验会报"未注册的动词"，并列出已注册的；测试直接红。
+
+这就是"后续无痛接入各种物品"的机制：新增的是**数据 + 动词**，不是新的 if 分支。
+`tests/test_content.gd` 里有两个测试专门盯这件事（只写数据的新物品、运行时注册的新动词）。
+
+对应的界面也走同一条路：背包面板的说明文字是从 `use_methods` 推出来的
+（`喝 +40` / `治 +15` / `开关`），不是给每件物品写死的文案。
+
 ## 3. 怪物 AI：`plan()` 想，`move()` 走一步
 
 - `monster::plan()`（`src/monmove.cpp:558`）：看能不能 `sees()` 到目标，

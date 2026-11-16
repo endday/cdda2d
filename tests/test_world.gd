@@ -40,9 +40,12 @@ func _expect(condition: bool, message: String) -> void:
 
 func _db() -> Dictionary:
 	return {
-		"water": {"id": "water", "name": "瓶装水", "kind": "water", "hydration": 40},
-		"canned_food": {"id": "canned_food", "name": "罐头", "kind": "food", "nutrition": 35},
-		"bandage": {"id": "bandage", "name": "绷带", "kind": "med", "heal": 15},
+		"water": {"id": "water", "name": "瓶装水",
+			"use_methods": [{"type": "consume", "quench": 40, "msg": "瓶装水"}]},
+		"canned_food": {"id": "canned_food", "name": "罐头",
+			"use_methods": [{"type": "consume", "calories": 35, "msg": "罐头"}]},
+		"bandage": {"id": "bandage", "name": "绷带",
+			"use_methods": [{"type": "heal", "heal": 15, "msg": "绷带"}]},
 	}
 
 
@@ -96,10 +99,12 @@ func test_loot_and_use() -> void:
 	world.player.pos = Vector2i(6, 6)
 	world.player.moves = Actor.BASE_SPEED
 	_expect(world.player_loot(), "水应该在 (6,6)")
-	_expect(world.player.inventory.has("water"), "背包里应有水")
+	_expect(world.player.has_item("water"), "背包里应有水")
 	world.player.thirst = 10
-	_expect(world.player_use("water"), "应该能喝水")
+	var water := world.player.find_item("water")
+	_expect(world.player_use(water), "应该能喝水")
 	_expect(world.player.thirst == 50, "水应回 40 口渴，实际 %d" % world.player.thirst)
+	_expect(not world.player.has_item("water"), "水应该被喝掉")
 
 
 func test_needs_tick() -> void:
@@ -125,7 +130,8 @@ func test_save_roundtrip() -> void:
 	_expect(restored.from_dict(data), "同版本存档应能读")
 	_expect(restored.player.pos == Vector2i(6, 6), "读档后位置应一致")
 	_expect(restored.player.thirst == 42, "读档后口渴应一致")
-	_expect(restored.player.inventory.has("water"), "读档后背包应一致")
+	_expect(restored.player.inventory.size() == 1, "读档后背包应一致")
+	_expect(restored.player.has_item("water"), "读档后应该还带着水")
 	_expect(not restored.is_closed_door(Vector2i(8, 11)), "读档后开着的门应还是开的")
 
 	var bad := World.new(_db())

@@ -37,7 +37,7 @@ func _apply_args() -> void:
 				world.refresh_view()
 		elif arg.begins_with("give="):
 			for item_id: String in arg.substr(5).split(","):
-				world.player.inventory.append(item_id)
+				world.player.take_item(Item.new(item_id))
 		elif arg.begins_with("act="):
 			for step: String in arg.substr(4).split(","):
 				match step:
@@ -45,9 +45,11 @@ func _apply_args() -> void:
 					"s": world.player_step(0, 1)
 					"a": world.player_step(-1, 0)
 					"d": world.player_step(1, 0)
-					"e": world.player_loot()
-					"t": world.player_repair()
-					"space": world.player_wait()
+					"e": world.player_examine()
+					"comma": world.player_loot()
+					"i": _main.inventory_open = not _main.inventory_open
+					"space", ".": world.player_wait()
+					"e_repair": world.player_repair()
 				world.settle()
 	if _main.has_method("refresh_ui"):
 		_main.refresh_ui()

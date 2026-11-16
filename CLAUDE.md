@@ -26,6 +26,8 @@ src/core/        纯 GDScript，不碰 Godot 节点/场景
   actor.gd       能行动的东西：pos/hp/moves/speed/需求/背包（玩家和怪物同一个类）
   action.gd      瞬间动作基类：{cost, can(), apply()}
   actions.gd     走/搜/用/等/打；费用和效果都在动作自己身上
+  item.gd        物品实例（原型 id + charges/active/damage）
+  item_use.gd    物品动词注册表：use_methods 的 type → 处理器（CDDA iuse_actor 的微缩版）
   combat.gd      命中/伤害/护甲（纯函数，可单测）
   monster_brain.gd  plan() 选目标 + step() 一步一动作（照 CDDA monmove）
   content_db.gd  内容校验：缺字段/重复 id/负数/引用不存在
@@ -50,17 +52,21 @@ tools/           build_all.py（Web/Windows/Linux）+ serve_web.py
 - 时间：CDDA 那套，每个 Actor 每回合 `moves += speed`；走 100、搜 50、用 50、等 100。
   玩家动到 `moves < 50` 世界推进一回合；空格是「等」，不是「结束回合」。
 - 动作：`World.perform(actor, action)`；走/搜/用/等/打五个动词，玩家和 AI 共用一条路径。
+- 物品：**原型 + 实例 + 动词注册表**（照 CDDA 的 itype/item/use_methods）。
+  `items.json` 只写数据；`ItemUse.register()` 加新玩法；World/UI/存档都不用改。
+  加物品 = 加一条 JSON，`ContentDB` 会校验每个 `use_methods.type` 都注册过。
+- 背包：`i` 打开，按字母使用；说明文字从 `use_methods` 推出来，不是写死的。
 - 门：数据。关着挡路，撞上去会推开（花一次移动的时间），下一格才能过；怪不会开门。
 - 敌人：3 种（蹒跚/奔跑者/壮汉），`MonsterBrain.plan()` 选目标、`step()` 一步一动作；
   速度 150 的怪一回合挪两步。撞上去就是打（bump attack）。
 - 战斗：`Combat` 里命中 85%、伤害取身上最好的家伙、护甲做减法；武器伤害读 `items.json`。
-- 目标：电台塔。带齐 零件/电池/电线 → 站到 `repair_site` 按 T → 修 5 回合
-  （`world.activity`，动一下即打断）→ 通了之后守 10 回合，每 3 回合刷一只蹒跚 → 通关。
-- 玩家：HP 100、饥饿/口渴/感染；物品 20 件，能搜、能吃/喝/用药。
-- 视觉：UltiCa 贴图（砖墙/木地板/路面/门/物品/人物/三种僵尸），相机夹在地图内，HUD 有血条/需求条/目标提示。
-- 内容：`content/monsters.json` + `ContentDB` 校验（缺字段/重复 id/负数/引用不存在都报）。
-- 存档：F5/F9，`user://save.json`（version 4，存了 run_seed + rng state + 目标进度）。
-- 测试：World / Actions / Combat / Content / Objective 五套，共 98 项检查。
+- 目标：电台塔。带齐 零件/电池/电线 → 站到 `repair_site` 按 e → 修 5 回合
+  （`world.activity`，动一下即打断）→ 通了之后守 10 回合，每 2 回合刷一只蹒跚 → 通关。
+- 玩家：HP 100、饥饿/口渴/感染。
+- 视觉：UltiCa 贴图；移动有平滑插值（指数平滑），相机跟随，HUD 有血条/需求条/目标提示。
+- 内容：`content/monsters.json` + `ContentDB` 校验（缺字段/重复 id/负数/未注册动词都报）。
+- 存档：F5/F9，`user://save.json`（version 5：物品存实例，不是 id 字符串）。
+- 测试：World / Actions / Combat / Content / Objective / Font 六套，共 109 项检查。
 - 构建：`export_presets.cfg` 有 Web/Windows/Linux；`tools/build_all.py`。
 
 **还没做**：制作、背包格/重量、多地图、场景/搜打撤、音效、回放测试。

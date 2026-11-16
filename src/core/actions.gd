@@ -56,51 +56,32 @@ class Loot extends Action:
 		return true
 
 
-## 用一件背包里的东西。
+## 用一件背包里的东西。走 ItemUse 注册表——加新物品不用改这里。
 class UseItem extends Action:
-	var item_id: String = ""
+	var item: Item
 
-	func _init(target_item: String) -> void:
+	func _init(target: Item) -> void:
 		id = "use"
 		label = "使用"
 		cost = 50
-		item_id = target_item
+		item = target
 
 	func can(actor: Variant, world: Variant) -> String:
-		if not actor.inventory.has(item_id):
-			return "背包里没有 %s。" % world.item_name(item_id)
-		if not _is_usable(world):
-			return "%s 现在用不了。" % world.item_name(item_id)
-		return ""
+		if item == null or not actor.inventory.has(item):
+			return "背包里没有这件东西。"
+		return ItemUse.can_use(actor, world, item)
 
 	func apply(actor: Variant, world: Variant) -> bool:
-		var index: int = actor.inventory.find(item_id)
-		if index < 0:
+		var result: Dictionary = ItemUse.use(actor, world, item)
+		if not bool(result.get("ok", false)):
+			world.log_message(String(result.get("message", "用不了。")))
 			return false
-		var data: Dictionary = world.item_db.get(item_id, {})
-		match String(data.get("kind", "")):
-			"food":
-				actor.hunger = mini(100, actor.hunger + int(data.get("nutrition", 0)))
-			"water":
-				actor.thirst = mini(100, actor.thirst + int(data.get("hydration", 0)))
-			"med":
-				actor.heal(int(data.get("heal", 0)))
-				actor.infection = maxi(0, actor.infection - int(data.get("cure", 0)))
-			_:
-				return false
-		actor.inventory.remove_at(index)
-		world.log_message("%s用了 %s。" % ["你" if actor.is_player else "", world.item_name(item_id)])
+		var message := String(result.get("message", ""))
+		if not message.is_empty():
+			world.log_message(message)
+		if bool(result.get("consume", false)):
+			actor.remove_item(item)
 		return true
-
-	func _is_usable(world: Variant) -> bool:
-		var data: Dictionary = world.item_db.get(item_id, {})
-		match String(data.get("kind", "")):
-			"food", "water":
-				return true
-			"med":
-				return data.has("heal") or data.has("cure")
-			_:
-				return false
 
 
 ## 等。CDDA 里空格就是这个动作，不是“结束回合”的开关；花掉一整个回合的 moves。

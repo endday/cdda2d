@@ -28,7 +28,7 @@ var damage := 2              # 天生攻击力；玩家靠手里的东西，怪�
 var armor := 0               # 天生护甲
 var sight := 8               # 视野半径（怪物追击用）
 var brain: Dictionary = {}   # 怪物的 AI 记忆：target / dest / wander，不入存档
-var inventory: Array[String] = []
+var inventory: Array[Item] = []
 
 
 func take_damage(amount: int) -> void:
@@ -44,6 +44,47 @@ func heal(amount: int) -> void:
 ## 世界推进一个回合：每个活着的角色拿到自己速度那么多的 moves。
 func gain_turn_moves() -> void:
 	moves = mini(moves + speed, MAX_BANKED_MOVES)
+
+
+# ---- 背包是物品实例的列表，不是 id 字符串（CDDA 的 item 数组）
+
+func take_item(item: Item) -> void:
+	inventory.append(item)
+
+
+func find_item(type_id: String) -> Item:
+	for item: Item in inventory:
+		if item.type_id == type_id:
+			return item
+	return null
+
+
+func has_item(type_id: String) -> bool:
+	return find_item(type_id) != null
+
+
+func remove_item(item: Item) -> bool:
+	var index := inventory.find(item)
+	if index < 0:
+		return false
+	inventory.remove_at(index)
+	return true
+
+
+## 按原型 id 拿掉一件（修电台这种消耗用）。
+func consume_type(type_id: String) -> bool:
+	var item := find_item(type_id)
+	if item == null:
+		return false
+	return remove_item(item)
+
+
+func item_count(type_id: String) -> int:
+	var count := 0
+	for item: Item in inventory:
+		if item.type_id == type_id:
+			count += 1
+	return count
 
 
 func to_dict() -> Dictionary:
@@ -63,8 +104,15 @@ func to_dict() -> Dictionary:
 		"monster_type": monster_type,
 		"damage": damage,
 		"armor": armor,
-		"inventory": inventory.duplicate(),
+		"inventory": _inventory_dict(),
 	}
+
+
+func _inventory_dict() -> Array:
+	var out: Array = []
+	for item: Item in inventory:
+		out.append(item.to_dict())
+	return out
 
 
 func from_dict(data: Dictionary) -> void:
@@ -87,4 +135,9 @@ func from_dict(data: Dictionary) -> void:
 	brain.clear()
 	inventory.clear()
 	for entry: Variant in data.get("inventory", []):
-		inventory.append(String(entry))
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var item := Item.new()
+		item.from_dict(entry)
+		if not item.type_id.is_empty():
+			inventory.append(item)

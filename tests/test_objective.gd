@@ -43,7 +43,7 @@ func _world() -> World:
 
 func _give_parts(world: World) -> void:
 	for part: String in World.REPAIR_PARTS:
-		world.player.inventory.append(part)
+		world.player.take_item(Item.new(part))
 
 
 func test_repair_needs_tower_and_parts() -> void:
@@ -52,9 +52,9 @@ func test_repair_needs_tower_and_parts() -> void:
 	world.player.pos = world.repair_site
 	_expect(not world.player_repair(), "没零件不能修")
 	_expect(world.activity.is_empty(), "失败不该开始活动")
-	world.player.inventory.append("radio_part")
+	world.player.take_item(Item.new("radio_part"))
 	_expect(not world.player_repair(), "只带一件零件不能修")
-	_expect(world.player.inventory.has("radio_part"), "失败不该吃掉零件")
+	_expect(world.player.has_item("radio_part"), "失败不该吃掉零件")
 
 
 func test_repair_starts_activity() -> void:
@@ -65,7 +65,7 @@ func test_repair_starts_activity() -> void:
 	_expect(int(world.activity.get("turns_left", 0)) == World.REPAIR_TURNS,
 		"活动应该剩 %d 回合，实际 %s" % [World.REPAIR_TURNS, world.activity])
 	for part: String in World.REPAIR_PARTS:
-		_expect(not world.player.inventory.has(part), "%s 应该被消耗掉" % part)
+		_expect(not world.player.has_item(part), "%s 应该被消耗掉" % part)
 
 
 func test_activity_completes_and_starts_defense() -> void:

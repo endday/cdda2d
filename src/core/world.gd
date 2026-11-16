@@ -16,7 +16,7 @@ const H := 32
 const FOV_RADIUS := 8
 const MIN_COST := 50          # 最便宜的动作；玩家剩得比这还少就推进世界
 const MONSTER_COST := 100     # 怪物一步/一爪的价格
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 
 ## 电台目标：站到塔上、带齐三件东西、修 5 回合、然后守 10 回合。
 const REPAIR_TURNS := 5
@@ -263,14 +263,14 @@ func items_at(cell: Vector2i) -> Array[Dictionary]:
 	return found
 
 
-## 把脚下的东西全塞进背包，返回拿到的 id（按放置顺序）。
+## 把脚下的东西全塞进背包，返回拿到的原型 id（按放置顺序）。
 func take_items_at(actor: Actor) -> Array[String]:
 	var taken: Array[String] = []
 	for i: int in range(items.size() - 1, -1, -1):
 		if items[i]["pos"] == actor.pos:
 			var item_id := String(items[i]["id"])
 			taken.push_front(item_id)
-			actor.inventory.append(item_id)
+			actor.take_item(Item.new(item_id))
 			items.remove_at(i)
 	return taken
 
@@ -335,12 +335,23 @@ func player_loot() -> bool:
 	return perform(player, Actions.Loot.new())
 
 
-func player_use(item_id: String) -> bool:
-	return perform(player, Actions.UseItem.new(item_id))
+func player_use(item: Item) -> bool:
+	return perform(player, Actions.UseItem.new(item))
 
 
 func player_wait() -> bool:
 	return perform(player, Actions.Wait.new())
+
+
+## 交互（CDDA 的 examine，默认 e 键）：站在塔上就是修电台，旁边有门就推开。
+func player_examine() -> bool:
+	if player.pos == repair_site:
+		return player_repair()
+	for delta: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		if is_closed_door(player.pos + delta):
+			return perform(player, Actions.Walk.new(delta.x, delta.y))
+	_push_log("这里没什么可看的。")
+	return false
 
 
 ## 在塔上修电台。这是「活动」不是瞬间动作：要连续等 5 回合，动一下就断。
@@ -358,11 +369,11 @@ func player_repair() -> bool:
 		_push_log("已经在修了。")
 		return false
 	for part: String in REPAIR_PARTS:
-		if not player.inventory.has(part):
+		if not player.has_item(part):
 			_push_log("还缺%s。" % item_name(part))
 			return false
 	for part: String in REPAIR_PARTS:
-		player.inventory.erase(part)
+		player.consume_type(part)
 	activity = {"id": "repair", "turns_left": REPAIR_TURNS, "total": REPAIR_TURNS}
 	_push_log("你把零件接上，开始调频（%d 回合，别乱动）。" % REPAIR_TURNS)
 	return true
