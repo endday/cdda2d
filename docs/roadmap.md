@@ -53,15 +53,15 @@ T4 体积重量 ──┘
 
 ---
 
-## T3 · wield / wear 装备位
+## T3 · wield / wear 装备位 ✅ 已完成
 
-**现状**：伤害取背包里数值最高的物品，护甲取最厚的——手上没拿也算数。
+**现状**：主手、副手、穿戴部位分开结算；主手优先攻击，主手空时副手武器可攻击。
 
-- `Actor.wielded: Item`、`Actor.worn: Array[Item]`
-- 动作：Wield（100 moves）、Wear（100 moves）、Unwield
-- 战斗：伤害只看 `wielded`，没拿就拳头；护甲只算 `worn`
-- 背包面板：标出 `[手]` `[穿]`
-- 存档 version 6
+- `Actor.wielded`、`Actor.offhand`、`Actor.worn` 独立保存
+- 动作：主手、副手、穿戴、脱下，均消耗行动时间
+- 战斗：主手优先，主手空时副手武器可攻击；护甲只算已穿戴物品
+- 背包支持左键选中、右键动作菜单、拖拽物品到装备槽
+- 存档记录主手、副手和穿戴部位
 
 **改动**：`actor.gd`、`combat.gd`、`actions.gd`、`world.gd`（存档）、`main.gd`（UI）
 **验收**：空手 3 / 拿刀 6；穿甲 3 / 不穿 0；读档后还在手上；测试 +5
@@ -69,14 +69,14 @@ T4 体积重量 ──┘
 
 ---
 
-## T4 · 体积 / 重量
+## T4 · 体积 / 重量 ✅ 已完成
 
-**现状**：`weight`/`volume` 已经在 JSON 里，但没人读，背包无限大。
+**现状**：拾取、负重速度和背包容积都按物品原型计算。
 
-- `Actor.capacity_volume`（默认 2000 ml，背包 +2000）、`max_weight`（默认 20 kg）
+- `Actor.capacity_volume`（基础口袋 6 L，装备背包 +20 L）、`max_weight`（默认 20 kg）
 - 拾取时检查：超了拒绝并说差多少（"再装 3.2L 装不下"）
 - 负重：超重降速、加速体力消耗
-- 背包面板：显示 `12.3 / 20 kg`、`1.8 / 4.0 L`，每件物品标重量
+- 背包面板显示负重和容积，每件物品标明占包空间；手持和穿戴不占容积
 
 **改动**：`actor.gd`、`world.gd`（拾取/搬运）、`main.gd`（UI）、`items.json`（补齐数值）
 **验收**：超重捡不起来；带背包容量变大；超重走路变慢；测试 +4
@@ -84,17 +84,17 @@ T4 体积重量 ──┘
 
 ---
 
-## T5 · 物品动作菜单（item_action）
+## T5 · 物品动作菜单（item_action） ✅ 已完成
 
-**现状**：背包里按字母直接"用"，一件东西只能有一个动作。
+**现状**：同一物品可由数据生成多个可用动作。
 
-- `content/item_actions.json`：动词表（eat / drink / wield / wear / apply / drop），带标签和条件
+- `ItemActions.available` 从物品原型与 `use_methods` 生成可用动作
 - `ItemActions.available(item, actor, world) -> [{id, label}]`
-- 背包里按字母 → 弹出该物品的动作列表 → 再按字母执行
+- 背包中左键查看动作列表，右键直接打开上下文菜单
 - 「用/吃/喝」仍然走现有的 `ItemUse` 注册表；`wield`/`wear`/`drop` 是新动作
 - 数据驱动：新物品只要有 `use_methods` 或 `flags`，菜单里自动出现对应选项
 
-**改动**：新增 `item_actions.gd`、`content/item_actions.json`；`main.gd`（二级菜单）
+**改动**：`src/core/item_actions.gd`、`src/core/actions.gd`、`scenes/main.gd`（动作列表与右键菜单）
 **验收**：水有「喝/丢」；刀有「手持/丢」；护甲有「穿/丢」；测试 +5
 **估时**：5 小时
 
@@ -111,8 +111,8 @@ T4 体积重量 ──┘
 5. 背包塞满 20kg，再捡系统说装不下
 6. 对一件物品按字母，能选「喝 / 丢」而不是直接喝掉
 
-**测试目标 ≥ 130 条**；Web 版重新部署；README 的键位表更新。
+**验收**：自动测试通过；Web 导出通过；README 控件说明已更新。
 
 ## 这批不做
 
-制作、多地图、音效、回放测试、搜打撤场景——都排在这五件后面。
+制作、多地图、音效和回放测试仍待后续；搜打撤主循环已经接入。

@@ -12,9 +12,10 @@ const FIST_DAMAGE := 3
 
 ## 武器伤害只取手持物品。怪物和空手玩家使用天生攻击力。
 static func weapon_damage(actor: Actor, item_db: Dictionary) -> int:
-	if actor.wielded == null:
+	var weapon := actor.wielded if actor.wielded != null else actor.offhand
+	if weapon == null:
 		return maxi(FIST_DAMAGE, actor.damage)
-	var melee: Dictionary = actor.wielded.prototype(item_db).get("melee", {})
+	var melee: Dictionary = weapon.prototype(item_db).get("melee", {})
 	return int(melee.get("damage", maxi(FIST_DAMAGE, actor.damage)))
 
 

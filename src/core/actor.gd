@@ -11,7 +11,7 @@ const MAX_BANKED_MOVES := 200   # 攒不动的时候别无限攒，否则被堵�
 const MAX_STAMINA := 1000
 const MIN_RUN_STAMINA := 100
 const BASE_MAX_WEIGHT := 20.0
-const BASE_CAPACITY_VOLUME := 2000
+const BASE_CAPACITY_VOLUME := 6000
 
 var id: String = ""
 var name: String = ""
@@ -40,6 +40,7 @@ var sight := 8               # 视野半径（怪物追击用）
 var brain: Dictionary = {}   # 怪物的 AI 记忆：target / dest / wander，不入存档
 var inventory: Array[Item] = []
 var wielded: Item = null
+var offhand: Item = null
 var worn: Array[Item] = []
 
 
@@ -90,6 +91,8 @@ func total_weight(item_db: Dictionary) -> float:
 func total_volume(item_db: Dictionary) -> int:
 	var total := 0
 	for item: Item in inventory:
+		if item == wielded or item == offhand or worn.has(item):
+			continue
 		total += int(item.prototype(item_db).get("volume", 0))
 	return total
 
@@ -112,9 +115,50 @@ func take_item(item: Item) -> void:
 
 
 func wield_item(item: Item) -> bool:
-	if item == null or not inventory.has(item):
+	if item == null or not inventory.has(item) or worn.has(item):
 		return false
+	if item == offhand:
+		offhand = null
 	wielded = item
+	return true
+
+
+func can_wield_main(item: Item, item_db: Dictionary) -> bool:
+	if item == null or not inventory.has(item) or worn.has(item):
+		return false
+	if item_db.is_empty():
+		return item.prototype(item_db).has("melee")
+	var prototype := item.prototype(item_db)
+	if not prototype.has("melee"):
+		return false
+	if "TWO_HANDED" in Array(prototype.get("flags", [])) and offhand != null and offhand != item:
+		return false
+	return true
+
+
+func hold_offhand(item: Item, item_db: Dictionary) -> bool:
+	if not can_hold_offhand(item, item_db):
+		return false
+	if item == wielded:
+		wielded = null
+	offhand = item
+	return true
+
+
+func can_hold_offhand(item: Item, item_db: Dictionary) -> bool:
+	if item == null or not inventory.has(item) or worn.has(item):
+		return false
+	var prototype := item.prototype(item_db)
+	var flags: Array = prototype.get("flags", [])
+	if not prototype.has("melee") and not ("OFF_HAND" in flags):
+		return false
+	return not ("TWO_HANDED" in flags)
+
+
+func unhold_offhand() -> bool:
+	if offhand == null:
+		return false
+	offhand = null
 	return true
 
 
@@ -126,6 +170,22 @@ func unwield_item() -> bool:
 
 
 func wear_item(item: Item, item_db: Dictionary) -> bool:
+	if not can_wear(item, item_db):
+		return false
+	var prototype := item.prototype(item_db)
+	var slot := equipment_slot(prototype)
+	var previous := worn_in_slot(slot, item_db)
+	if previous != null:
+		remove_worn(previous)
+	if item == wielded:
+		wielded = null
+	if item == offhand:
+		offhand = null
+	worn.append(item)
+	return true
+
+
+func can_wear(item: Item, item_db: Dictionary) -> bool:
 	if item == null or not inventory.has(item) or worn.has(item):
 		return false
 	var prototype := item.prototype(item_db)
@@ -133,11 +193,19 @@ func wear_item(item: Item, item_db: Dictionary) -> bool:
 	if not prototype.has("armor") and not prototype.has("capacity_volume") and not ("WEARABLE" in flags):
 		return false
 	var slot := equipment_slot(prototype)
+	if slot.is_empty():
+		return false
+	var remaining_capacity := capacity_volume + int(prototype.get("capacity_volume", 0))
 	for worn_item: Item in worn:
-		if equipment_slot(worn_item.prototype(item_db)) == slot:
-			return false
-	worn.append(item)
-	return true
+		if equipment_slot(worn_item.prototype(item_db)) != slot:
+			remaining_capacity += int(worn_item.prototype(item_db).get("capacity_volume", 0))
+	var remaining_volume := total_volume(item_db)
+	if item != wielded and item != offhand:
+		remaining_volume -= int(prototype.get("volume", 0))
+	var replaced := worn_in_slot(slot, item_db)
+	if replaced != null:
+		remaining_volume += int(replaced.prototype(item_db).get("volume", 0))
+	return remaining_volume <= remaining_capacity
 
 
 func equipment_slot(prototype: Dictionary) -> String:
@@ -183,6 +251,8 @@ func remove_item(item: Item) -> bool:
 		return false
 	if wielded == item:
 		wielded = null
+	if offhand == item:
+		offhand = null
 	remove_worn(item)
 	inventory.remove_at(index)
 	return true
@@ -228,6 +298,7 @@ func to_dict() -> Dictionary:
 		"armor": armor,
 		"inventory": _inventory_dict(),
 		"wielded_index": inventory.find(wielded),
+		"offhand_index": inventory.find(offhand),
 		"worn_indices": _worn_indices(),
 	}
 
@@ -264,7 +335,7 @@ func from_dict(data: Dictionary) -> void:
 	stamina = clampi(int(data.get("stamina", max_stamina)), 0, max_stamina)
 	run_mode = bool(data.get("run_mode", false))
 	max_weight = float(data.get("max_weight", BASE_MAX_WEIGHT))
-	capacity_volume = int(data.get("capacity_volume", BASE_CAPACITY_VOLUME))
+	capacity_volume = maxi(BASE_CAPACITY_VOLUME, int(data.get("capacity_volume", BASE_CAPACITY_VOLUME)))
 	stamina_used_this_turn = false
 	alive = bool(data.get("alive", true))
 	faction = String(data.get("faction", "player"))
@@ -284,8 +355,14 @@ func from_dict(data: Dictionary) -> void:
 	var wielded_index := int(data.get("wielded_index", -1))
 	if wielded_index >= 0 and wielded_index < inventory.size():
 		wielded = inventory[wielded_index]
+	offhand = null
+	var offhand_index := int(data.get("offhand_index", -1))
+	if offhand_index >= 0 and offhand_index < inventory.size() and offhand_index != wielded_index:
+		offhand = inventory[offhand_index]
 	worn.clear()
 	for entry: Variant in data.get("worn_indices", []):
 		var index := int(entry)
 		if index >= 0 and index < inventory.size():
 			worn.append(inventory[index])
+	if offhand != null and worn.has(offhand):
+		offhand = null

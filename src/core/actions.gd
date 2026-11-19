@@ -147,7 +147,7 @@ class Wield extends Action:
 	func can(actor: Variant, _world: Variant) -> String:
 		if item == null or not actor.inventory.has(item):
 			return "背包里没有这件东西。"
-		if not item.prototype(_world.item_db).has("melee"):
+		if not actor.can_wield_main(item, _world.item_db):
 			return "这件东西不能手持战斗。"
 		return ""
 
@@ -163,13 +163,60 @@ class Unwield extends Action:
 		label = "卸下手持物"
 		cost = 100
 
-	func can(actor: Variant, _world: Variant) -> String:
-		return "你手上没有东西。" if actor.wielded == null else ""
+	func can(actor: Variant, world: Variant) -> String:
+		if actor.wielded == null:
+			return "你主手没有东西。"
+		var item: Item = actor.wielded
+		if actor.total_volume(world.item_db) + int(item.prototype(world.item_db).get("volume", 0)) > actor.max_volume(world.item_db):
+			return "背包空间不足，先腾出空间再收起主手物品。"
+		return ""
 
 	func apply(actor: Variant, world: Variant) -> bool:
 		var name: String = world.item_name(actor.wielded.type_id)
 		actor.unwield_item()
 		world.log_message("你放下了%s。" % name)
+		return true
+
+
+class HoldOffhand extends Action:
+	var item: Item
+
+	func _init(target: Item) -> void:
+		id = "hold_offhand"
+		label = "放入副手"
+		cost = 100
+		item = target
+
+	func can(actor: Variant, world: Variant) -> String:
+		if not actor.can_hold_offhand(item, world.item_db):
+			return "这件东西不能放在副手。"
+		return ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		if not actor.hold_offhand(item, world.item_db):
+			return false
+		world.log_message("你把%s拿在副手。" % world.item_name(item.type_id))
+		return true
+
+
+class UnholdOffhand extends Action:
+	func _init() -> void:
+		id = "unhold_offhand"
+		label = "腾出副手"
+		cost = 100
+
+	func can(actor: Variant, world: Variant) -> String:
+		if actor.offhand == null:
+			return "副手是空的。"
+		var item: Item = actor.offhand
+		if actor.total_volume(world.item_db) + int(item.prototype(world.item_db).get("volume", 0)) > actor.max_volume(world.item_db):
+			return "背包空间不足，先腾出空间再收起副手物品。"
+		return ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		var name: String = world.item_name(actor.offhand.type_id)
+		actor.unhold_offhand()
+		world.log_message("你腾出了副手（%s）。" % name)
 		return true
 
 
@@ -191,10 +238,10 @@ class Wear extends Action:
 		var flags: Array = prototype.get("flags", [])
 		if not prototype.has("armor") and not prototype.has("capacity_volume") and not ("WEARABLE" in flags):
 			return "这件东西不能穿戴。"
-		var slot: String = actor.equipment_slot(prototype)
-		for worn_item: Item in actor.worn:
-			if actor.equipment_slot(worn_item.prototype(world.item_db)) == slot:
-				return "这个装备位已经被占用了。"
+		if actor.equipment_slot(prototype).is_empty():
+			return "这件东西没有可穿戴的装备位。"
+		if not actor.can_wear(item, world.item_db):
+			return "当前背包空间不够容纳换下的装备。"
 		return ""
 
 	func apply(actor: Variant, world: Variant) -> bool:
@@ -212,8 +259,14 @@ class Unwear extends Action:
 		cost = 100
 		item = target
 
-	func can(actor: Variant, _world: Variant) -> String:
-		return "这件东西没有穿着。" if item == null or not actor.worn.has(item) else ""
+	func can(actor: Variant, world: Variant) -> String:
+		if item == null or not actor.worn.has(item):
+			return "这件东西没有穿着。"
+		var prototype := item.prototype(world.item_db)
+		var capacity_after: int = actor.max_volume(world.item_db) - int(prototype.get("capacity_volume", 0))
+		if actor.total_volume(world.item_db) + int(prototype.get("volume", 0)) > capacity_after:
+			return "背包空间不足，先腾出空间再脱下这件装备。"
+		return ""
 
 	func apply(actor: Variant, world: Variant) -> bool:
 		actor.remove_worn(item)

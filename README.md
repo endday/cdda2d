@@ -43,7 +43,7 @@ The presets are in `export_presets.cfg`: `Web`, `Windows`, `Linux`.
 | WASD / arrows / hjkl | 走一格（100 moves）；按住连续走 |
 | y u b n / 小键盘 1 3 7 9 | 斜走（141 moves，不能切墙角） |
 | ' 或 " | 切换跑步模式（每格 50 moves，消耗更多体力） |
-| i | 背包（先选物品，再选动作，i/Esc 关闭） |
+| i | 背包（左键选物品，右键打开动作，i/Esc 关闭） |
 | , | 捡起脚下的东西（CDDA 的 pickup） |
 | e | 搜索附近容器，或在撤离点开始撤离 |
 | . 或 5 或空格 | 等一回合（CDDA 的 pause） |
@@ -53,8 +53,8 @@ The presets are in `export_presets.cfg`: `Web`, `Windows`, `Linux`.
 > 键位对齐 CDDA：`i` 背包、`.` 等待、`,` 捡东西、`e` 交互，都来自
 > `data/raw/keybindings.json`。移动支持八方向，装备和物品动作从背包二级菜单选择。
 
-鼠标左键点击地面会自动寻路，点击容器会走过去搜索，点击敌人会攻击；右键检查目标。
-R 打开整备页，勾选仓库物品后出发。背包内可点击物品卡和人形装备槽。
+鼠标左键点击地面会自动寻路，点击容器会走过去搜索，点击敌人会攻击；地图右键检查目标。
+R 打开整备页，勾选仓库物品后出发。背包中右键打开物品动作菜单，拖动物品到人形装备槽即可装备或换装。
 
 ## The run
 
@@ -86,8 +86,8 @@ The radio tower defense objective remains as an optional legacy scenario. The pr
 loop is now search, manage risk, and extract before the 180-turn window closes. Profile
 stash is stored in user://profile.json.
 
-Not yet: off-hand and quick slots, selective container loot window, crafting, multiple
-maps, deterministic replay.
+Not yet: quick slots, selective container loot window, crafting, multiple maps,
+deterministic replay.
 
 ## Art
 
@@ -140,6 +140,6 @@ After deploying, bump the URL query (`?v=2`) or hard-refresh — the browser cac
 
 ## Next
 
-1. Add off-hand/quick slots and a container loot-selection window.
-2. Add crafting and a small set of CDDA-style item interactions.
+1. Add quick slots and a container loot-selection window.
+2. Add crafting and more CDDA-style item interactions.
 3. Add deterministic replay commands and state-hash tests.

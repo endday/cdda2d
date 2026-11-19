@@ -418,6 +418,14 @@ func player_unwield() -> bool:
 	return perform(player, Actions.Unwield.new())
 
 
+func player_hold_offhand(item: Item) -> bool:
+	return perform(player, Actions.HoldOffhand.new(item))
+
+
+func player_unhold_offhand() -> bool:
+	return perform(player, Actions.UnholdOffhand.new())
+
+
 func player_wear(item: Item) -> bool:
 	return perform(player, Actions.Wear.new(item))
 

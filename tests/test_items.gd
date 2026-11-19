@@ -20,8 +20,13 @@ func run() -> Array[String]:
 	_checks = 0
 	test_stamina_and_running()
 	test_capacity_rejects_pickup()
+	test_equipment_does_not_use_pack_volume()
+	test_backpack_expands_capacity()
+	test_legacy_capacity_is_upgraded()
 	test_item_actions_are_explicit()
 	test_equipment_slots_are_distinct()
+	test_equipment_replaces_same_slot()
+	test_offhand_is_usable_and_persistent()
 	test_equipment_save_roundtrip()
 	return _failures
 
@@ -40,8 +45,12 @@ func _db() -> Dictionary:
 			"flags": ["ARMOR"], "wear_slot": "body"},
 		"helmet": {"id": "helmet", "name": "头盔", "weight": 0.5, "volume": 300,
 			"armor": 1, "wear_slot": "head", "flags": ["WEARABLE"]},
-		"backpack": {"id": "backpack", "name": "背包", "weight": 1.0, "volume": 1000,
-			"capacity_volume": 2000, "flags": ["CONTAINER"]},
+		"backpack": {"id": "backpack", "name": "背包", "weight": 1.0, "volume": 3000,
+			"capacity_volume": 20000, "wear_slot": "backpack", "flags": ["CONTAINER"]},
+		"flashlight": {"id": "flashlight", "name": "手电筒", "weight": 0.3, "volume": 300,
+			"flags": ["OFF_HAND"]},
+		"vest": {"id": "vest", "name": "背心", "weight": 1.0, "volume": 900, "armor": 2,
+			"flags": ["ARMOR"], "wear_slot": "body"},
 		"water": {"id": "water", "name": "水", "weight": 0.5, "volume": 500,
 			"use_methods": [{"type": "consume", "quench": 40}]},
 		"scrap": {"id": "scrap", "name": "碎料", "weight": 0.1, "volume": 50},
@@ -75,6 +84,39 @@ func test_capacity_rejects_pickup() -> void:
 	_expect(taken.is_empty(), "超重物品不应该被捡起")
 	_expect(world.items.size() == 1, "被拒绝的物品应该留在地上")
 	_expect(world.log_lines.back().contains("太重"), "超重时应该写明原因")
+
+
+func test_equipment_does_not_use_pack_volume() -> void:
+	var world := World.new(_db(), {}, 23)
+	world.player.capacity_volume = 500
+	var armor := Item.new("armor")
+	world.player.take_item(armor)
+	_expect(world.player.wear_item(armor, world.item_db), "护甲应该能穿上")
+	_expect(world.player.total_volume(world.item_db) == 0, "穿戴护甲不应该占背包容积")
+	_expect(world.player.total_weight(world.item_db) == 2.0, "穿戴护甲仍然应该计入负重")
+	var knife := Item.new("knife")
+	world.player.take_item(knife)
+	_expect(world.player.wield_item(knife), "小刀应该能拿在主手")
+	_expect(world.player.total_volume(world.item_db) == 0, "手持物不应该占背包容积")
+	_expect(world.player.carry_error(Item.new("water"), world.item_db).is_empty(),
+		"腾出穿戴和手持物的容积后应该能装入水")
+
+
+func test_backpack_expands_capacity() -> void:
+	var world := World.new(_db(), {}, 24)
+	var bag := Item.new("backpack")
+	world.player.take_item(bag)
+	_expect(world.player.wear_item(bag, world.item_db), "背包应该能装备")
+	_expect(world.player.max_volume(world.item_db) == Actor.BASE_CAPACITY_VOLUME + 20000,
+		"装备背包应该增加 20L 容积")
+	_expect(world.player.total_volume(world.item_db) == 0, "穿着的背包不应该占用自身容量")
+
+
+func test_legacy_capacity_is_upgraded() -> void:
+	var actor := Actor.new()
+	actor.from_dict({"capacity_volume": 2000, "inventory": []})
+	_expect(actor.capacity_volume == Actor.BASE_CAPACITY_VOLUME,
+		"旧存档的 2L 基础容量应该升级到新的口袋容量")
 
 
 func test_item_actions_are_explicit() -> void:
@@ -124,3 +166,42 @@ func test_equipment_slots_are_distinct() -> void:
 	_expect(world.player.worn_in_slot("body", world.item_db) == armor, "身体槽应该显示护甲")
 	_expect(world.player.worn_in_slot("head", world.item_db) == helmet, "头部槽应该显示头盔")
 	_expect(Combat.armor_of(world.player, world.item_db) == 4, "多个部位的护甲应该累加")
+
+
+func test_equipment_replaces_same_slot() -> void:
+	var world := World.new(_db(), {}, 25)
+	var armor := Item.new("armor")
+	var vest := Item.new("vest")
+	world.player.take_item(armor)
+	world.player.take_item(vest)
+	_expect(world.player.wear_item(armor, world.item_db), "初始护甲应该能穿戴")
+	_expect(world.player.wear_item(vest, world.item_db), "换装时应替换同部位旧装备")
+	_expect(world.player.worn.size() == 1 and world.player.worn[0] == vest,
+		"同一装备位只应保留新装备")
+
+
+func test_offhand_is_usable_and_persistent() -> void:
+	var world := World.new(_db(), {}, 26)
+	var flashlight := Item.new("flashlight")
+	world.player.take_item(flashlight)
+	_expect(world.player.can_hold_offhand(flashlight, world.item_db), "标记为 OFF_HAND 的工具应该能放入副手")
+	var flashlight_options := ItemActions.available(flashlight, world.player, world)
+	var flashlight_can_be_held := false
+	for option: Dictionary in flashlight_options:
+		flashlight_can_be_held = flashlight_can_be_held or String(option["id"]) == "hold_offhand"
+	_expect(flashlight_can_be_held, "工具的动作菜单应该包含放入副手")
+	var knife := Item.new("knife")
+	world.player.take_item(knife)
+	_expect(world.player.hold_offhand(knife, world.item_db), "近战武器应该能放入副手")
+	_expect(world.player.offhand == knife, "副手槽应该引用所选物品")
+	_expect(Combat.weapon_damage(world.player, world.item_db) == 6,
+		"主手空置时，副手武器应该能用于攻击")
+	var options := ItemActions.available(knife, world.player, world)
+	var has_remove_offhand := false
+	for option: Dictionary in options:
+		has_remove_offhand = has_remove_offhand or String(option["id"]) == "unhold_offhand"
+	_expect(has_remove_offhand, "副手物品应该提供腾出副手的动作")
+	var restored := World.new(_db(), {}, 27)
+	_expect(restored.from_dict(world.to_dict()), "副手装备应该能读档")
+	_expect(restored.player.offhand != null and restored.player.offhand.type_id == "knife",
+		"读档后应该保留副手物品")

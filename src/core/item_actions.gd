@@ -14,19 +14,26 @@ static func available(item: Item, actor: Actor, world: Variant) -> Array:
 		if ItemUse.can_use_method(actor, world, item, method) == "":
 			out.append({"id": "use", "label": _method_label(method), "method": method.duplicate(true)})
 
-	if prototype.has("melee"):
-		if actor.wielded == item:
-			out.append({"id": "unwield", "label": "卸下手持物", "method": {}})
-		else:
-			out.append({"id": "wield", "label": "手持", "method": {}})
+	if actor.wielded == item:
+		out.append({"id": "unwield", "label": "放回背包", "method": {}})
+	elif actor.can_wield_main(item, world.item_db):
+		out.append({"id": "wield", "label": "放入主手", "method": {}})
+
+	if actor.offhand == item:
+		out.append({"id": "unhold_offhand", "label": "腾出副手", "method": {}})
+	elif actor.can_hold_offhand(item, world.item_db):
+		out.append({"id": "hold_offhand", "label": "放入副手", "method": {}})
 
 	var flags: Array = prototype.get("flags", [])
 	var wearable := prototype.has("armor") or prototype.has("capacity_volume") or ("WEARABLE" in flags)
 	if wearable:
 		if actor.worn.has(item):
 			out.append({"id": "unwear", "label": "脱下", "method": {}})
-		elif not _slot_occupied(item, actor, world, prototype):
-			out.append({"id": "wear", "label": "穿戴", "method": {}})
+		elif actor.can_wear(item, world.item_db):
+			var slot := actor.equipment_slot(prototype)
+			var current := actor.worn_in_slot(slot, world.item_db)
+			var label := "更换%s" % _slot_label(slot) if current != null else "穿戴"
+			out.append({"id": "wear", "label": label, "method": {}})
 
 	var disassemble: Variant = prototype.get("disassemble", [])
 	if typeof(disassemble) == TYPE_ARRAY and not (disassemble as Array).is_empty():
@@ -35,12 +42,20 @@ static func available(item: Item, actor: Actor, world: Variant) -> Array:
 	return out
 
 
-static func _slot_occupied(item: Item, actor: Actor, world: Variant, prototype: Dictionary) -> bool:
-	var slot := actor.equipment_slot(prototype)
-	for worn_item: Item in actor.worn:
-		if worn_item != item and actor.equipment_slot(worn_item.prototype(world.item_db)) == slot:
-			return true
-	return false
+static func _slot_label(slot: String) -> String:
+	match slot:
+		"head":
+			return "头部装备"
+		"body":
+			return "身体装备"
+		"backpack":
+			return "背包"
+		"legs":
+			return "腿部装备"
+		"feet":
+			return "脚部装备"
+		_:
+			return "装备"
 
 
 static func _method_label(method: Dictionary) -> String:

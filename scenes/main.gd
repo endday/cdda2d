@@ -48,6 +48,9 @@ var inventory_open := false
 var item_action_open := false
 var item_action_item: Item = null
 var item_action_options: Array = []
+var item_context_panel: Panel
+var item_context_list: VBoxContainer
+var inventory_scroll: ScrollContainer
 var inventory_list: GridContainer
 
 var tile_texture: Texture2D
@@ -252,13 +255,18 @@ func _build_ui() -> void:
 	divider.color = Color("#29464c")
 	inv_panel.add_child(divider)
 	inv_label = _label(inv_panel, "", Vector2(24, 86), 13, Color("#c3d0b9"))
-	inv_label.size = Vector2(510, 40)
+	inv_label.size = Vector2(510, 52)
+	inventory_scroll = ScrollContainer.new()
+	inventory_scroll.position = Vector2(24, 148)
+	inventory_scroll.size = Vector2(510, 484)
+	inventory_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	inv_panel.add_child(inventory_scroll)
 	inventory_list = GridContainer.new()
 	inventory_list.columns = 2
-	inventory_list.position = Vector2(24, 132)
-	inventory_list.size = Vector2(510, 500)
+	inventory_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inventory_list.custom_minimum_size.x = 510
 	inventory_list.add_theme_constant_override("separation", 6)
-	inv_panel.add_child(inventory_list)
+	inventory_scroll.add_child(inventory_list)
 	_build_equipment_panel(inv_panel)
 	inventory_close_button = _new_button()
 	inventory_close_button.text = "ESC  关闭"
@@ -271,6 +279,13 @@ func _build_ui() -> void:
 	inventory_close_button.pressed.connect(_close_inventory)
 	inv_panel.add_child(inventory_close_button)
 	_build_deployment_screen(layer)
+	item_context_panel = _panel(layer, Rect2(Vector2.ZERO, Vector2.ZERO))
+	item_context_panel.visible = false
+	item_context_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	item_context_list = VBoxContainer.new()
+	item_context_list.position = Vector2(6, 6)
+	item_context_list.add_theme_constant_override("separation", 3)
+	item_context_panel.add_child(item_context_list)
 
 
 func _build_deployment_screen(layer: CanvasLayer) -> void:
@@ -322,7 +337,8 @@ func _rebuild_deployment_list() -> void:
 		_add_starter_kit_card("主手武器", "小刀", "0.4 kg  ·  6 近战伤害")
 		_add_starter_kit_card("补给", "瓶装水", "0.5 kg  ·  恢复口渴")
 		_add_starter_kit_card("医疗", "绷带", "0.1 kg  ·  恢复生命")
-		deployment_info.text = "基础负重约 1 kg。成功撤离可将物资存入仓库。"
+		_add_starter_kit_card("背负", "背包", "1.0 kg  ·  增加 20 L 容积")
+		deployment_info.text = "基础口袋 6 L，背包装备后共 26 L。成功撤离可将物资存入仓库。"
 		return
 	for i: int in profile_stash.size():
 		var item_id: String = profile_stash[i]
@@ -390,29 +406,50 @@ func _deploy_raid() -> void:
 	for index: int in selected_stash_indices:
 		selected[index] = true
 	var remaining: Array[String] = []
-	var loaded := 0
+	var selected_items: Array[Item] = []
 	for i: int in profile_stash.size():
 		var item_id: String = profile_stash[i]
-		if not selected.has(i):
+		if selected.has(i):
+			selected_items.append(Item.new(item_id))
+		else:
 			remaining.append(item_id)
-			continue
-		var item := Item.new(item_id)
-		if not world.player.carry_error(item, item_data).is_empty():
-			remaining.append(item_id)
+	var loaded := 0
+	var items_to_pack: Array[Item] = []
+	for item: Item in selected_items:
+		var prototype := item.prototype(item_data)
+		var item_weight := float(prototype.get("weight", 0.0))
+		if world.player.total_weight(item_data) + item_weight > world.player.max_weight:
+			remaining.append(item.type_id)
 			continue
 		world.player.take_item(item)
-		loaded += 1
+		var equipped := false
+		if prototype.has("melee") and world.player.wielded == null:
+			equipped = world.player.wield_item(item)
+		elif prototype.has("wear_slot") or prototype.has("armor") or prototype.has("capacity_volume"):
+			equipped = world.player.wear_item(item, item_data)
+		if equipped:
+			loaded += 1
+		else:
+			world.player.remove_item(item)
+			items_to_pack.append(item)
+	for item: Item in items_to_pack:
+		if world.player.carry_error(item, item_data).is_empty():
+			world.player.take_item(item)
+			loaded += 1
+		else:
+			remaining.append(item.type_id)
 	profile_stash = remaining
 	if loaded == 0:
-		for item_id: String in ["knife", "water", "bandage"]:
-			if item_data.has(item_id) and world.player.carry_error(Item.new(item_id), item_data).is_empty():
-				world.player.take_item(Item.new(item_id))
-	for item: Item in world.player.inventory:
-		var prototype := item.prototype(item_data)
-		if prototype.has("melee") and world.player.wielded == null:
-			world.player.wield_item(item)
-		elif prototype.has("wear_slot") or prototype.has("armor") or prototype.has("capacity_volume"):
-			world.player.wear_item(item, item_data)
+		for item_id: String in ["knife", "water", "bandage", "backpack"]:
+			var item := Item.new(item_id)
+			if not item_data.has(item_id) or not world.player.carry_error(item, item_data).is_empty():
+				continue
+			world.player.take_item(item)
+			var prototype := item.prototype(item_data)
+			if prototype.has("melee") and world.player.wielded == null:
+				world.player.wield_item(item)
+			elif prototype.has("wear_slot") or prototype.has("armor") or prototype.has("capacity_volume"):
+				world.player.wear_item(item, item_data)
 	world.stash = profile_stash.duplicate()
 	_save_profile()
 	deployment_open = false
@@ -424,7 +461,7 @@ func _deploy_raid() -> void:
 func _build_equipment_panel(parent: Panel) -> void:
 	equipment_panel = _panel(parent, Rect2(560, 86, 568, 546))
 	_label(equipment_panel, "EQUIPMENT  /  装备", Vector2(20, 18), 15, Color("#e7f4ef"))
-	_label(equipment_panel, "点击槽位查看装备，物品动作在左侧选择", Vector2(20, 46), 11, Color("#7d9188"))
+	_label(equipment_panel, "拖拽物品到槽位换装，右键打开动作菜单", Vector2(20, 46), 11, Color("#7d9188"))
 	var figure := _label(equipment_panel, "             O\n           / | \\\n             |\n            / \\", Vector2(220, 94), 29, Color("#7fa99d"))
 	figure.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	figure.size = Vector2(128, 188)
@@ -437,13 +474,14 @@ func _build_equipment_panel(parent: Panel) -> void:
 	_add_equipment_slot("feet", "脚部", Vector2(150, 368), Vector2(140, 62))
 	_add_equipment_slot("quick", "快捷栏", Vector2(298, 368), Vector2(140, 62))
 	_label(equipment_panel, "装备规则", Vector2(20, 466), 11, Color("#76908c"))
-	_label(equipment_panel, "手持物决定攻击伤害    穿戴物决定护甲和容量    装备动作消耗行动时间", Vector2(20, 488), 11, Color("#c3d0b9"))
+	_label(equipment_panel, "主手攻击优先，主手空时副手武器可攻击    穿戴不占背包容积", Vector2(20, 488), 11, Color("#c3d0b9"))
 
 
 func _add_equipment_slot(slot_id: String, title: String, position: Vector2, size: Vector2) -> void:
-	var button := _new_button()
+	var button := _new_item_drag_button()
 	button.name = "Equipment_" + slot_id
 	button.text = title + "\n空"
+	button.equipment_slot_id = slot_id
 	button.position = position
 	button.size = size
 	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -453,6 +491,8 @@ func _add_equipment_slot(slot_id: String, title: String, position: Vector2, size
 	button.add_theme_stylebox_override("normal", _button_style(Color("#101a1d"), Color("#283b40")))
 	button.add_theme_stylebox_override("hover", _button_style(Color("#19343a"), Color("#83b6a7")))
 	button.pressed.connect(_on_equipment_slot_pressed.bind(slot_id))
+	button.gui_input.connect(_on_equipment_slot_gui_input.bind(slot_id))
+	button.item_dropped.connect(_on_inventory_item_dropped_on_slot)
 	equipment_panel.add_child(button)
 	equipment_slots[slot_id] = button
 
@@ -465,7 +505,7 @@ func _refresh_equipment_panel() -> void:
 	_set_equipment_slot("main_hand", "主手", "空手" if p.wielded == null else world.item_name(p.wielded.type_id))
 	_set_equipment_slot("body", "身体", _worn_name("body"))
 	_set_equipment_slot("backpack", "背包", _worn_name("backpack"))
-	_set_equipment_slot("off_hand", "副手", "未开放")
+	_set_equipment_slot("off_hand", "副手", "空" if p.offhand == null else world.item_name(p.offhand.type_id))
 	_set_equipment_slot("legs", "腿部", _worn_name("legs"))
 	_set_equipment_slot("feet", "脚部", _worn_name("feet"))
 	_set_equipment_slot("quick", "快捷栏", "未开放")
@@ -483,8 +523,8 @@ func _set_equipment_slot(slot_id: String, title: String, value: String) -> void:
 
 
 func _on_equipment_slot_pressed(slot_id: String) -> void:
-	if slot_id == "off_hand" or slot_id == "quick":
-		world.log_message("这个装备位还没有接入操作。")
+	if slot_id == "quick":
+		world.log_message("快捷栏还没有接入。")
 		refresh_ui()
 		return
 	var item: Item = null
@@ -493,6 +533,13 @@ func _on_equipment_slot_pressed(slot_id: String) -> void:
 		if item == null:
 			for candidate: Item in world.player.inventory:
 				if candidate.prototype(world.item_db).has("melee"):
+					item = candidate
+					break
+	elif slot_id == "off_hand":
+		item = world.player.offhand
+		if item == null:
+			for candidate: Item in world.player.inventory:
+				if world.player.can_hold_offhand(candidate, world.item_db):
 					item = candidate
 					break
 	else:
@@ -588,6 +635,13 @@ func _new_check_button() -> CheckButton:
 	return button
 
 
+func _new_item_drag_button() -> ItemDragButton:
+	var button := ItemDragButton.new()
+	_apply_ui_font(button)
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	return button
+
+
 func _bar(parent: Node, pos: Vector2, size: Vector2, color: Color) -> Dictionary:
 	var back := ColorRect.new()
 	back.position = pos
@@ -631,8 +685,8 @@ func _refresh_ui() -> void:
 	raid_label.text = "%s  /  仓库 %d 件" % [raid_state, profile_stash.size()]
 	threat_label.text = _threat_summary()
 	var wielded_name := "空手" if p.wielded == null else world.item_name(p.wielded.type_id)
-	var worn_name := "无" if p.worn.is_empty() else world.item_name(p.worn[0].type_id)
-	load_label.text = "手持  %s   穿戴  %s\n负重  %s" % [wielded_name, worn_name, _pack_summary()]
+	var offhand_name := "空" if p.offhand == null else world.item_name(p.offhand.type_id)
+	load_label.text = "主手 %s  副手 %s\n%s" % [wielded_name, offhand_name, _pack_summary()]
 
 	var lines: Array[String] = []
 	var start := maxi(0, world.log_lines.size() - 4)
@@ -724,16 +778,10 @@ func _parts_have() -> int:
 
 func _pack_summary() -> String:
 	var p := world.player
-	var load := "%.1f/%.1fkg %.1f/%.1fL" % [
+	return "%.1f/%.1fkg  %.1f/%.1fL" % [
 		p.total_weight(world.item_db), p.max_weight,
 		float(p.total_volume(world.item_db)) / 1000.0, float(p.max_volume(world.item_db)) / 1000.0,
 	]
-	if p.inventory.is_empty():
-		return "背包空   " + load
-	var names: Array[String] = []
-	for item: Item in p.inventory.slice(0, 5):
-		names.append(world.item_name(item.type_id))
-	return "背包：" + ", ".join(names) + "   " + load
 
 
 # ================================================================ 物品栏
@@ -757,6 +805,8 @@ func _close_inventory_state() -> void:
 	item_action_open = false
 	item_action_item = null
 	item_action_options.clear()
+	if item_context_panel != null:
+		item_context_panel.visible = false
 
 
 func _on_action_button(action_id: String) -> void:
@@ -794,23 +844,30 @@ func _rebuild_inventory_panel() -> void:
 			inventory_list.add_child(button)
 		return
 	inventory_list.columns = 2
-	inv_label.text = "INVENTORY  /  %d ITEMS\n左键选择物品，右键或动作列表进行操作" % p.inventory.size()
+	inv_label.text = "INVENTORY  /  %d ITEMS\n负重 %.1f / %.1f kg   空间 %.1f / %.1f L\n左键选择 · 右键动作 · 拖到装备位" % [
+		p.inventory.size(), p.total_weight(world.item_db), p.max_weight,
+		float(p.total_volume(world.item_db)) / 1000.0, float(p.max_volume(world.item_db)) / 1000.0,
+	]
 	if p.inventory.is_empty():
 		_label(inventory_list, "背包为空", Vector2.ZERO, 13, Color("#7d9188"))
 		return
 	for i: int in p.inventory.size():
 		var item: Item = p.inventory[i]
 		var equipped := "  [手持]" if p.wielded == item else ""
+		if p.offhand == item:
+			equipped += "  [副手]"
 		if p.worn.has(item):
 			equipped += "  [穿戴]"
-		var button := _inventory_button("%s   %-10s%s\n      %s" % [char("A".unicode_at(0) + i), world.item_name(item.type_id), equipped, _item_summary(item)])
+		var button := _inventory_button("%s   %-10s%s\n      %s" % [char("A".unicode_at(0) + i), world.item_name(item.type_id), equipped, _item_summary(item)], i)
 		button.tooltip_text = world.item_name(item.type_id)
 		button.pressed.connect(_on_inventory_item_pressed.bind(i))
+		button.gui_input.connect(_on_inventory_item_gui_input.bind(i))
 		inventory_list.add_child(button)
 
 
-func _inventory_button(text: String) -> Button:
-	var button := _new_button()
+func _inventory_button(text: String, item_index: int = -1) -> ItemDragButton:
+	var button := _new_item_drag_button()
+	button.inventory_item_index = item_index
 	button.text = text
 	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.custom_minimum_size = Vector2(248, 58)
@@ -828,6 +885,103 @@ func _on_inventory_item_pressed(index: int) -> void:
 	item_action_item = world.player.inventory[index]
 	item_action_options = ItemActions.available(item_action_item, world.player, world)
 	item_action_open = not item_action_options.is_empty()
+	refresh_ui()
+
+
+func _on_inventory_item_gui_input(event: InputEvent, index: int) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mouse_event := event as InputEventMouseButton
+	if mouse_event.button_index != MOUSE_BUTTON_RIGHT or not mouse_event.pressed:
+		return
+	if index >= 0 and index < world.player.inventory.size():
+		_open_item_context_menu(world.player.inventory[index])
+	get_viewport().set_input_as_handled()
+
+
+func _on_equipment_slot_gui_input(event: InputEvent, slot_id: String) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mouse_event := event as InputEventMouseButton
+	if mouse_event.button_index != MOUSE_BUTTON_RIGHT or not mouse_event.pressed:
+		return
+	var item := _equipped_item(slot_id)
+	if item != null:
+		_open_item_context_menu(item)
+	get_viewport().set_input_as_handled()
+
+
+func _equipped_item(slot_id: String) -> Item:
+	if slot_id == "main_hand":
+		return world.player.wielded
+	if slot_id == "off_hand":
+		return world.player.offhand
+	return world.player.worn_in_slot(slot_id, world.item_db)
+
+
+func _open_item_context_menu(item: Item) -> void:
+	item_action_item = item
+	item_action_options = ItemActions.available(item, world.player, world)
+	item_action_open = false
+	for child: Node in item_context_list.get_children():
+		child.free()
+	if item_action_options.is_empty():
+		item_context_panel.visible = false
+		return
+	for i: int in item_action_options.size():
+		var option: Dictionary = item_action_options[i]
+		var button := _new_button()
+		button.text = String(option.get("label", "操作"))
+		button.custom_minimum_size = Vector2(208, 32)
+		button.add_theme_font_size_override("font_size", 12)
+		button.add_theme_color_override("font_color", Color("#c3d0b9"))
+		button.add_theme_stylebox_override("normal", _button_style(Color("#101a1d"), Color("#31454a")))
+		button.add_theme_stylebox_override("hover", _button_style(Color("#19343a"), Color("#83b6a7")))
+		button.pressed.connect(_on_context_action_selected.bind(i))
+		item_context_list.add_child(button)
+	var menu_height := float(item_action_options.size() * 35 + 12)
+	item_context_panel.size = Vector2(220, menu_height)
+	item_context_list.size = Vector2(208, menu_height - 12)
+	var mouse := get_viewport().get_mouse_position()
+	var viewport_size := get_viewport_rect().size
+	item_context_panel.position = Vector2(
+		clampf(mouse.x, 0.0, viewport_size.x - item_context_panel.size.x),
+		clampf(mouse.y, 0.0, viewport_size.y - item_context_panel.size.y))
+	item_context_panel.visible = true
+
+
+func _on_context_action_selected(index: int) -> void:
+	item_context_panel.visible = false
+	_on_inventory_action_pressed(index)
+
+
+func _on_inventory_item_dropped_on_slot(item_index: int, target_slot: String) -> void:
+	if item_index < 0 or item_index >= world.player.inventory.size():
+		return
+	var item := world.player.inventory[item_index]
+	if _equipped_item(target_slot) == item:
+		return
+	var target_action := ""
+	if target_slot == "main_hand" and world.player.can_wield_main(item, world.item_db):
+		target_action = "wield"
+	elif target_slot == "off_hand" and world.player.can_hold_offhand(item, world.item_db):
+		target_action = "hold_offhand"
+	elif (
+		world.player.equipment_slot(item.prototype(world.item_db)) == target_slot
+		and world.player.can_wear(item, world.item_db)
+	):
+		target_action = "wear"
+	if target_action.is_empty():
+		world.log_message("这件物品不能放入该装备位，或当前空间不足。")
+		refresh_ui()
+		return
+	item_action_item = item
+	item_action_options = ItemActions.available(item, world.player, world)
+	for i: int in item_action_options.size():
+		if String(item_action_options[i].get("id", "")) == target_action:
+			_on_inventory_action_pressed(i)
+			return
+	world.log_message("该物品当前无法装备。")
 	refresh_ui()
 
 
@@ -900,7 +1054,11 @@ func _item_summary(item: Item) -> String:
 	if proto.has("armor"):
 		parts.append("护甲 %d" % int(proto["armor"]))
 	if proto.has("weight") or proto.has("volume"):
-		parts.append("%.1fkg %.1fL" % [float(proto.get("weight", 0.0)), float(proto.get("volume", 0)) / 1000.0])
+		var packed := item != world.player.wielded and item != world.player.offhand and not world.player.worn.has(item)
+		var volume := float(proto.get("volume", 0)) / 1000.0 if packed else 0.0
+		parts.append("%.1fkg 占包 %.1fL" % [float(proto.get("weight", 0.0)), volume])
+	if proto.has("capacity_volume"):
+		parts.append("+%.1fL容量" % (float(proto["capacity_volume"]) / 1000.0))
 	if parts.is_empty():
 		return "—"
 	return "｜".join(parts)
@@ -1139,6 +1297,14 @@ func _draw_actor(actor: Actor) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if deployment_open:
 		return
+	if item_context_panel != null and item_context_panel.visible:
+		if event is InputEventMouseButton and event.pressed:
+			if not item_context_panel.get_global_rect().has_point(event.position):
+				item_context_panel.visible = false
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			item_context_panel.visible = false
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventMouseButton and event.pressed:
 		_handle_map_click(event as InputEventMouseButton)
 		return
@@ -1192,6 +1358,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_R:
 			_start_new_raid()
 	_after_action()
+
+
+func _input(event: InputEvent) -> void:
+	if item_context_panel == null or not item_context_panel.visible:
+		return
+	if event is InputEventMouseButton and event.pressed:
+		if not item_context_panel.get_global_rect().has_point(event.position):
+			item_context_panel.visible = false
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		item_context_panel.visible = false
+		get_viewport().set_input_as_handled()
 
 
 func _handle_map_click(event: InputEventMouseButton) -> void:
@@ -1376,6 +1553,10 @@ func _execute_item_action(option: Dictionary) -> bool:
 			return world.player_wield(item_action_item)
 		"unwield":
 			return world.player_unwield()
+		"hold_offhand":
+			return world.player_hold_offhand(item_action_item)
+		"unhold_offhand":
+			return world.player_unhold_offhand()
 		"wear":
 			return world.player_wear(item_action_item)
 		"unwear":
