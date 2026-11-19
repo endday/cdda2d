@@ -8,7 +8,8 @@ extends RefCounted
 ##
 ## 这里不碰文件——只管已经解析好的 Array/Dictionary，方便单测。
 
-const ITEM_NUMERIC := ["weight", "volume", "armor"]
+const ITEM_NUMERIC := ["weight", "volume", "armor", "capacity_volume"]
+const WEAR_SLOTS := ["head", "body", "backpack", "arms", "hands", "legs", "feet"]
 
 
 static func index_by_id(entries: Array) -> Dictionary:
@@ -44,12 +45,33 @@ static func validate_items(entries: Array) -> Array[String]:
 				problems.append("items[%s] 的 %s 不能是负数" % [item_id, field])
 		if item.has("flags") and typeof(item["flags"]) != TYPE_ARRAY:
 			problems.append("items[%s] 的 flags 应该是数组" % item_id)
+		if item.has("wear_slot") and not (String(item["wear_slot"]) in WEAR_SLOTS):
+			problems.append("items[%s] 的 wear_slot 不认识：%s" % [item_id, item["wear_slot"]])
+		if item.has("disassemble"):
+			problems.append_array(_validate_disassemble(item_id, item["disassemble"]))
 		if item.has("melee"):
 			if typeof(item["melee"]) != TYPE_DICTIONARY:
 				problems.append("items[%s] 的 melee 应该是对象" % item_id)
 			elif float((item["melee"] as Dictionary).get("damage", 0)) < 0.0:
 				problems.append("items[%s] 的 melee.damage 不能是负数" % item_id)
 		problems.append_array(_validate_use_methods(item_id, item.get("use_methods", [])))
+	return problems
+
+
+static func _validate_disassemble(item_id: String, recipe: Variant) -> Array[String]:
+	var problems: Array[String] = []
+	if typeof(recipe) != TYPE_ARRAY:
+		return ["items[%s] 的 disassemble 应该是数组" % item_id]
+	for j: int in (recipe as Array).size():
+		var entry: Variant = recipe[j]
+		if typeof(entry) != TYPE_DICTIONARY:
+			problems.append("items[%s].disassemble[%d] 不是对象" % [item_id, j])
+			continue
+		var result: Dictionary = entry
+		if String(result.get("id", "")).is_empty():
+			problems.append("items[%s].disassemble[%d] 缺 id" % [item_id, j])
+		if int(result.get("count", 1)) <= 0:
+			problems.append("items[%s].disassemble[%d] 的 count 必须 > 0" % [item_id, j])
 	return problems
 
 
@@ -114,4 +136,19 @@ static func validate_references(entries: Array, known: Dictionary, where: String
 		var item_id := String((entry as Dictionary).get("id", ""))
 		if not known.has(item_id):
 			problems.append("%s 里引用了不存在的 id：%s" % [where, item_id])
+	return problems
+
+
+static func validate_disassemble_references(entries: Array, known: Dictionary) -> Array[String]:
+	var problems: Array[String] = []
+	for entry: Variant in entries:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var item: Dictionary = entry
+		for result: Variant in item.get("disassemble", []):
+			if typeof(result) != TYPE_DICTIONARY:
+				continue
+			var result_id := String((result as Dictionary).get("id", ""))
+			if not result_id.is_empty() and not known.has(result_id):
+				problems.append("物品 %s 的拆解产物不存在：%s" % [String(item.get("id", "")), result_id])
 	return problems

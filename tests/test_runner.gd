@@ -10,6 +10,8 @@ const SUITES: Array = [
 	preload("res://tests/test_objective.gd"),
 	preload("res://tests/test_font.gd"),
 	preload("res://tests/test_movement.gd"),
+	preload("res://tests/test_items.gd"),
+	preload("res://tests/test_raid.gd"),
 ]
 
 

@@ -41,29 +41,35 @@ The presets are in `export_presets.cfg`: `Web`, `Windows`, `Linux`.
 | Key | Action |
 |---|---|
 | WASD / arrows / hjkl | 走一格（100 moves）；按住连续走 |
-| y u b n / 小键盘 7 9 1 3 | 斜走（141 moves，不能切墙角） |
-| i | 背包（按字母使用，i/Esc 关闭） |
+| y u b n / 小键盘 1 3 7 9 | 斜走（141 moves，不能切墙角） |
+| ' 或 " | 切换跑步模式（每格 50 moves，消耗更多体力） |
+| i | 背包（先选物品，再选动作，i/Esc 关闭） |
 | , | 捡起脚下的东西（CDDA 的 pickup） |
-| e | 交互：站在塔上就是修电台，旁边有门就推开（CDDA 的 examine） |
+| e | 搜索附近容器，或在撤离点开始撤离 |
 | . 或 5 或空格 | 等一回合（CDDA 的 pause） |
 | F5 / F9 | save / load `user://save.json` |
 | R | restart |
 
 > 键位对齐 CDDA：`i` 背包、`.` 等待、`,` 捡东西、`e` 交互，都来自
-> `data/raw/keybindings.json`。移动仍是 4 向（CDDA 是 8 向）。
+> `data/raw/keybindings.json`。移动支持八方向，装备和物品动作从背包二级菜单选择。
+
+鼠标左键点击地面会自动寻路，点击容器会走过去搜索，点击敌人会攻击；右键检查目标。
+R 打开整备页，勾选仓库物品后出发。背包内可点击物品卡和人形装备槽。
 
 ## The run
 
-1. 在街上醒来，往北进建筑搜刮：**零件 / 电池 / 电线** 是电台要的三件东西。
-2. 东西在第三栋建筑里，那儿有只壮汉守着。
-3. 回街上、沿电台塔的通道下去，站到塔里按 **e** 开始修（5 回合，期间别动）。
-4. 修通后守 **10 回合**：每 2 回合从塔内冒一只蹒跚。
-5. 死了看撑到第几回合；活着就是通关。
+1. 带着基础装备进入小镇，在住宅、诊所或警用装备箱搜索物资。
+2. 物资自动进入背包，检查重量和体积，并在装备面板穿戴找到的装备。
+3. 避开或击败敌人，沿地图向西移动到标记的撤离点。
+4. 在撤离点按 E，撑过撤离时的世界响应后带着物品回到仓库。
+5. 死亡或错过撤离窗口会失去本局携带物资，仓库内容保留。
 
 ## Status
 
-Implemented: 48×32 town map, FOV + seen tiles, movement, loot, food/water/meds,
-hunger/thirst/infection tick, save/load, 20-item data table, tests.
+Implemented: 48×32 town map, FOV + seen tiles, eight-way movement, mouse/keyboard
+controls, searchable loot containers, raid timer and extraction, persistent stash,
+food/water/meds, stamina and running, functional body/weapon/backpack equipment slots,
+weight/volume limits, item action menus, save/load, content validation and tests.
 
 Time model is CDDA's: every actor has `moves`; each turn `moves += speed`; actions cost
 moves. Player and monsters go through one entry point, `World.perform(actor, action)`;
@@ -76,12 +82,12 @@ ported from CDDA's `monster::plan()`/`monster::move()`, and melee combat with hi
 damage / armor split into `src/core/combat.gd`. Walk into one to hit it. They cannot
 open doors, so a closed door is a real defensive tool.
 
-The objective is in: repair the radio tower (5 turns, any non-wait action interrupts —
-CDDA's `player_activity` in miniature), then hold 10 turns while shamblers come down the
-corridor. Win/lose both end the run.
+The radio tower defense objective remains as an optional legacy scenario. The primary
+loop is now search, manage risk, and extract before the 180-turn window closes. Profile
+stash is stored in user://profile.json.
 
-Not yet: crafting, inventory grid UI, weight/size enforcement, multiple maps,
-scenarios/extraction.
+Not yet: off-hand and quick slots, selective container loot window, crafting, multiple
+maps, deterministic replay.
 
 ## Art
 
@@ -134,8 +140,6 @@ After deploying, bump the URL query (`?v=2`) or hard-refresh — the browser cac
 
 ## Next
 
-1. Enemies + combat + AI (same action system).
-2. Crafting (10 recipes) and the radio objective.
-3. Inventory grid + weight/size.
-4. Content validation + deterministic replay test.
-5. Play 3 runs; write the four J4 questions.
+1. Add off-hand/quick slots and a container loot-selection window.
+2. Add crafting and a small set of CDDA-style item interactions.
+3. Add deterministic replay commands and state-hash tests.

@@ -7,7 +7,9 @@ extends RefCounted
 ## 斜走按 √2 计价（CDDA 的 `move_cost * M_SQRT2`），而且不能从两个墙角之间穿过去。
 class Walk extends Action:
 	const MOVE_COST := 100
+	const RUN_COST := 50
 	const DIAGONAL_COST := 141    # int(100 * sqrt(2))
+	const RUN_DIAGONAL_COST := 71
 
 	var dx: int = 0
 	var dy: int = 0
@@ -20,6 +22,8 @@ class Walk extends Action:
 		cost = MOVE_COST if dx == 0 or dy == 0 else DIAGONAL_COST
 
 	func can(actor: Variant, world: Variant) -> String:
+		if actor.run_mode and actor.stamina < Actor.MIN_RUN_STAMINA:
+			return "你喘得太厉害，暂时跑不动。"
 		var target: Vector2i = actor.pos + Vector2i(dx, dy)
 		if world.is_wall(target):
 			return "前面是墙。"
@@ -33,8 +37,21 @@ class Walk extends Action:
 				return "拐角过不去。"
 		return ""
 
+	func cost_for(actor: Variant) -> int:
+		if not actor.run_mode:
+			return cost
+		return RUN_COST if dx == 0 or dy == 0 else RUN_DIAGONAL_COST
+
+	func _stamina_cost(actor: Variant, world: Variant) -> int:
+		var ratio := 10 if actor.run_mode else 1
+		var amount := maxi(1, int(round(float(cost_for(actor) * ratio) / 100.0)))
+		if actor.total_weight(world.item_db) > actor.max_weight:
+			amount = maxi(amount, int(ceil(float(amount) * 1.5)))
+		return amount
+
 	func apply(actor: Variant, world: Variant) -> bool:
 		var target: Vector2i = actor.pos + Vector2i(dx, dy)
+		actor.burn_stamina(_stamina_cost(actor, world))
 		if world.is_closed_door(target):
 			world.open_door(target)
 			world.log_message("%s推开门。" % _who(actor))
@@ -66,23 +83,47 @@ class Loot extends Action:
 		return true
 
 
+class SearchContainer extends Action:
+	var container: Dictionary
+
+	func _init(target: Dictionary) -> void:
+		id = "search_container"
+		label = "搜索"
+		cost = 100
+		container = target
+
+	func can(_actor: Variant, _world: Variant) -> String:
+		if container.is_empty():
+			return "这里没有可搜索的容器。"
+		if bool(container.get("searched", false)):
+			return "已经搜过了。"
+		return ""
+
+	func apply(_actor: Variant, world: Variant) -> bool:
+		return world.search_container(container)
+
+
 ## 用一件背包里的东西。走 ItemUse 注册表——加新物品不用改这里。
 class UseItem extends Action:
 	var item: Item
+	var method: Dictionary
 
-	func _init(target: Item) -> void:
+	func _init(target: Item, selected_method: Dictionary = {}) -> void:
 		id = "use"
 		label = "使用"
 		cost = 50
 		item = target
+		method = selected_method.duplicate(true)
 
 	func can(actor: Variant, world: Variant) -> String:
 		if item == null or not actor.inventory.has(item):
 			return "背包里没有这件东西。"
-		return ItemUse.can_use(actor, world, item)
+		if method.is_empty():
+			return ItemUse.can_use(actor, world, item)
+		return ItemUse.can_use_method(actor, world, item, method)
 
 	func apply(actor: Variant, world: Variant) -> bool:
-		var result: Dictionary = ItemUse.use(actor, world, item)
+		var result: Dictionary = ItemUse.use(actor, world, item) if method.is_empty() else ItemUse.use_method(actor, world, item, method)
 		if not bool(result.get("ok", false)):
 			world.log_message(String(result.get("message", "用不了。")))
 			return false
@@ -91,6 +132,146 @@ class UseItem extends Action:
 			world.log_message(message)
 		if bool(result.get("consume", false)):
 			actor.remove_item(item)
+		return true
+
+
+class Wield extends Action:
+	var item: Item
+
+	func _init(target: Item) -> void:
+		id = "wield"
+		label = "手持"
+		cost = 100
+		item = target
+
+	func can(actor: Variant, _world: Variant) -> String:
+		if item == null or not actor.inventory.has(item):
+			return "背包里没有这件东西。"
+		if not item.prototype(_world.item_db).has("melee"):
+			return "这件东西不能手持战斗。"
+		return ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		actor.wield_item(item)
+		world.log_message("你手持了%s。" % world.item_name(item.type_id))
+		return true
+
+
+class Unwield extends Action:
+	func _init() -> void:
+		id = "unwield"
+		label = "卸下手持物"
+		cost = 100
+
+	func can(actor: Variant, _world: Variant) -> String:
+		return "你手上没有东西。" if actor.wielded == null else ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		var name: String = world.item_name(actor.wielded.type_id)
+		actor.unwield_item()
+		world.log_message("你放下了%s。" % name)
+		return true
+
+
+class Wear extends Action:
+	var item: Item
+
+	func _init(target: Item) -> void:
+		id = "wear"
+		label = "穿戴"
+		cost = 100
+		item = target
+
+	func can(actor: Variant, world: Variant) -> String:
+		if item == null or not actor.inventory.has(item):
+			return "背包里没有这件东西。"
+		if actor.worn.has(item):
+			return "已经穿着了。"
+		var prototype := item.prototype(world.item_db)
+		var flags: Array = prototype.get("flags", [])
+		if not prototype.has("armor") and not prototype.has("capacity_volume") and not ("WEARABLE" in flags):
+			return "这件东西不能穿戴。"
+		var slot: String = actor.equipment_slot(prototype)
+		for worn_item: Item in actor.worn:
+			if actor.equipment_slot(worn_item.prototype(world.item_db)) == slot:
+				return "这个装备位已经被占用了。"
+		return ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		actor.wear_item(item, world.item_db)
+		world.log_message("你穿上了%s。" % world.item_name(item.type_id))
+		return true
+
+
+class Unwear extends Action:
+	var item: Item
+
+	func _init(target: Item) -> void:
+		id = "unwear"
+		label = "脱下"
+		cost = 100
+		item = target
+
+	func can(actor: Variant, _world: Variant) -> String:
+		return "这件东西没有穿着。" if item == null or not actor.worn.has(item) else ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		actor.remove_worn(item)
+		world.log_message("你脱下了%s。" % world.item_name(item.type_id))
+		return true
+
+
+class Drop extends Action:
+	var item: Item
+
+	func _init(target: Item) -> void:
+		id = "drop"
+		label = "丢弃"
+		cost = 50
+		item = target
+
+	func can(actor: Variant, _world: Variant) -> String:
+		return "背包里没有这件东西。" if item == null or not actor.inventory.has(item) else ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		actor.remove_item(item)
+		world.drop_item(actor, item)
+		world.log_message("你丢下了%s。" % world.item_name(item.type_id))
+		return true
+
+
+class Disassemble extends Action:
+	var item: Item
+
+	func _init(target: Item) -> void:
+		id = "disassemble"
+		label = "拆解"
+		cost = 100
+		item = target
+
+	func can(actor: Variant, world: Variant) -> String:
+		if item == null or not actor.inventory.has(item):
+			return "背包里没有这件东西。"
+		if item.prototype(world.item_db).get("disassemble", []).is_empty():
+			return "这件东西不能拆解。"
+		return ""
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		var prototype := item.prototype(world.item_db)
+		actor.remove_item(item)
+		var names: Array[String] = []
+		for entry: Variant in prototype.get("disassemble", []):
+			if typeof(entry) != TYPE_DICTIONARY:
+				continue
+			var result: Dictionary = entry
+			var id := String(result.get("id", ""))
+			var count := maxi(1, int(result.get("count", 1)))
+			if id.is_empty() or not world.item_db.has(id):
+				continue
+			for _i: int in range(count):
+				actor.take_item(Item.new(id))
+			names.append("%s×%d" % [world.item_name(id), count])
+		world.log_message("你拆解了%s，得到%s。" % [world.item_name(item.type_id), "、".join(names)])
 		return true
 
 

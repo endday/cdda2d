@@ -26,7 +26,7 @@ OUT_FONT = os.path.join(OUT_DIR, "ui.otf")
 ALWAYS = (
     "".join(chr(c) for c in range(0x20, 0x7F))
     + "　，。、：；！？（）【】「」《》…—·～＋－×÷°"
-    + "←↑→↓"
+    + "←↑→↓与槽收局援恢复医疗超载"
 )
 
 SCAN_DIRS = ["src", "scenes", "content"]

@@ -10,21 +10,19 @@ const HIT_CHANCE := 85      # 近战基础命中率，百分比
 const FIST_DAMAGE := 3
 
 
-## 武器伤害取「身上能打的东西里最高的那个」。还没有装备位，先这样。
+## 武器伤害只取手持物品。怪物和空手玩家使用天生攻击力。
 static func weapon_damage(actor: Actor, item_db: Dictionary) -> int:
-	var best: int = maxi(FIST_DAMAGE, actor.damage)
-	for item: Item in actor.inventory:
-		var melee: Dictionary = item.prototype(item_db).get("melee", {})
-		if melee.has("damage"):
-			best = maxi(best, int(melee["damage"]))
-	return best
+	if actor.wielded == null:
+		return maxi(FIST_DAMAGE, actor.damage)
+	var melee: Dictionary = actor.wielded.prototype(item_db).get("melee", {})
+	return int(melee.get("damage", maxi(FIST_DAMAGE, actor.damage)))
 
 
-## 护甲同理：取身上最厚的那件。
+## 护甲只计算已穿戴物品。
 static func armor_of(actor: Actor, item_db: Dictionary) -> int:
 	var best: int = actor.armor
-	for item: Item in actor.inventory:
-		best = maxi(best, int(item.prototype(item_db).get("armor", 0)))
+	for item: Item in actor.worn:
+		best += int(item.prototype(item_db).get("armor", 0))
 	return best
 
 

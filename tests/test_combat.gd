@@ -78,12 +78,17 @@ func test_weapon_and_armor_values() -> void:
 	_expect(Combat.weapon_damage(player, world.item_db) == Combat.FIST_DAMAGE,
 		"空手应该是拳头伤害，实际 %d" % Combat.weapon_damage(player, world.item_db))
 	player.take_item(Item.new("knife"))
+	_expect(Combat.weapon_damage(player, world.item_db) == Combat.FIST_DAMAGE,
+		"只放进背包的小刀不该改变伤害")
+	player.wield_item(player.find_item("knife"))
 	_expect(Combat.weapon_damage(player, world.item_db) == 6,
-		"拿小刀应该是 6，实际 %d" % Combat.weapon_damage(player, world.item_db))
+		"手持小刀应该是 6，实际 %d" % Combat.weapon_damage(player, world.item_db))
 	_expect(Combat.armor_of(player, world.item_db) == 0, "没穿护甲应该是 0")
 	player.take_item(Item.new("armor"))
+	_expect(Combat.armor_of(player, world.item_db) == 0, "只放进背包的护甲不该生效")
+	player.wear_item(player.find_item("armor"), world.item_db)
 	_expect(Combat.armor_of(player, world.item_db) == 3,
-		"穿护甲应该是 3，实际 %d" % Combat.armor_of(player, world.item_db))
+		"穿上护甲应该是 3，实际 %d" % Combat.armor_of(player, world.item_db))
 
 
 func test_resolve_is_deterministic() -> void:
@@ -103,6 +108,7 @@ func test_player_kills_monster() -> void:
 	var world := _world()
 	var monster := _take_monster(world, world.player.pos + Vector2i(1, 0))
 	world.player.take_item(Item.new("knife"))
+	world.player.wield_item(world.player.find_item("knife"))
 	for i: int in 40:
 		world.player.moves = 100
 		world.player_attack(monster)

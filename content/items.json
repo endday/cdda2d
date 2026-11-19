@@ -1,9 +1,11 @@
 [
   {"id": "crowbar", "name": "撬棍", "weight": 1.2, "volume": 1200, "material": "steel",
    "flags": ["TOOL"], "melee": {"damage": 8},
+   "disassemble": [{"id": "scrap", "count": 2}],
    "desc": "撬门、撬柜、当武器。"},
   {"id": "knife", "name": "小刀", "weight": 0.4, "volume": 250, "material": "steel",
    "flags": ["SHARP"], "melee": {"damage": 6},
+   "disassemble": [{"id": "scrap", "count": 1}],
    "desc": "快，但短。"},
   {"id": "pistol", "name": "手枪", "weight": 0.8, "volume": 500, "material": "steel",
    "flags": ["GUN"], "melee": {"damage": 10},
@@ -43,9 +45,18 @@
   {"id": "keycard", "name": "钥匙卡", "weight": 0.05, "volume": 10, "material": "plastic",
    "desc": "开某扇门。"},
   {"id": "armor", "name": "护甲", "weight": 3.0, "volume": 3000, "material": "kevlar",
-   "flags": ["ARMOR"], "armor": 3, "desc": "减伤。"},
+   "flags": ["ARMOR"], "wear_slot": "body", "armor": 3, "desc": "减伤。"},
   {"id": "backpack", "name": "背包", "weight": 1.0, "volume": 2000, "material": "fabric",
-   "flags": ["CONTAINER"], "desc": "扩容；等背包格接上再用。"},
+   "flags": ["CONTAINER"], "wear_slot": "backpack", "capacity_volume": 2000,
+   "disassemble": [{"id": "scrap", "count": 2}], "desc": "穿上后扩容。"},
   {"id": "stimulant", "name": "兴奋剂", "weight": 0.1, "volume": 50, "material": "plastic",
-   "use_methods": [{"type": "heal", "heal": 5, "msg": "兴奋剂"}], "desc": "短时加速。"}
+   "use_methods": [{"type": "heal", "heal": 5, "msg": "兴奋剂"}], "desc": "短时加速。"},
+  {"id": "scrap", "name": "金属碎料", "weight": 0.2, "volume": 100, "material": "steel",
+   "desc": "拆解得到的材料。"},
+  {"id": "helmet", "name": "防护头盔", "weight": 1.1, "volume": 900, "material": "steel",
+   "flags": ["ARMOR", "WEARABLE"], "wear_slot": "head", "armor": 1, "desc": "保护头部。"},
+  {"id": "pants", "name": "战术长裤", "weight": 0.7, "volume": 700, "material": "fabric",
+   "flags": ["WEARABLE"], "wear_slot": "legs", "armor": 1, "desc": "耐磨的作战长裤。"},
+  {"id": "boots", "name": "作战靴", "weight": 0.9, "volume": 800, "material": "leather",
+   "flags": ["WEARABLE"], "wear_slot": "feet", "armor": 1, "desc": "适合长距离行动。"}
 ]

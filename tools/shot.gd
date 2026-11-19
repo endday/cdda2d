@@ -30,7 +30,9 @@ func _apply_args() -> void:
 	if world == null:
 		return
 	for arg: String in OS.get_cmdline_user_args():
-		if arg.begins_with("pos="):
+		if arg == "deploy":
+			_main.call("_deploy_raid")
+		elif arg.begins_with("pos="):
 			var parts: PackedStringArray = arg.substr(4).split(",")
 			if parts.size() == 2:
 				world.player.pos = Vector2i(int(parts[0]), int(parts[1]))

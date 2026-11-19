@@ -56,6 +56,24 @@ static func use(actor: Actor, world: Variant, item: Item) -> Dictionary:
 	return Dictionary(handler["use"].call(actor, world, item, method))
 
 
+static func can_use_method(actor: Actor, world: Variant, item: Item, method: Dictionary) -> String:
+	_ensure_builtins()
+	var type := String(method.get("type", ""))
+	if not _handlers.has(type):
+		return "这个动作没有处理器。"
+	var handler: Dictionary = _handlers[type]
+	return String(handler["can"].call(actor, world, item, method))
+
+
+static func use_method(actor: Actor, world: Variant, item: Item, method: Dictionary) -> Dictionary:
+	_ensure_builtins()
+	var type := String(method.get("type", ""))
+	if not _handlers.has(type):
+		return {"ok": false, "message": "这个动作没有处理器。", "consume": false, "replace": ""}
+	var handler: Dictionary = _handlers[type]
+	return Dictionary(handler["use"].call(actor, world, item, method))
+
+
 static func _first_usable(actor: Actor, world: Variant, item: Item) -> Dictionary:
 	var data: Dictionary = world.item_db.get(item.type_id, {})
 	for entry: Variant in data.get("use_methods", []):

@@ -15,13 +15,15 @@ const W := 48
 const H := 32
 const FOV_RADIUS := 8
 const MONSTER_COST := 100     # 怪物一步/一爪的参考价格（实际按动作自己算）
-const SAVE_VERSION := 5
+const SAVE_VERSION := 7
 
 ## 电台目标：站到塔上、带齐三件东西、修 5 回合、然后守 10 回合。
 const REPAIR_TURNS := 5
 const DEFENSE_TURNS := 10
 const DEFENSE_SPAWN_EVERY := 2
 const REPAIR_PARTS := ["radio_part", "battery", "wire"]
+const RAID_DURATION := 180
+const DEFAULT_EXTRACT_POS := Vector2i(3, 14)
 
 var map: Array = []                  # 0=floor 1=wall 2=door
 var doors_open: Dictionary = {}      # Vector2i -> true
@@ -30,6 +32,8 @@ var visible: Dictionary = {}         # Vector2i -> true
 var actors: Array[Actor] = []
 var player: Actor
 var items: Array[Dictionary] = []    # {id, pos}
+var containers: Array[Dictionary] = []
+var run_loot: Array[Dictionary] = []
 var item_db: Dictionary = {}         # id -> data
 var monster_db: Dictionary = {}      # id -> data
 var turn := 1
@@ -37,10 +41,16 @@ var log_lines: Array[String] = []
 var command_log: Array[Dictionary] = []   # 回放用；见 docs/cdda-notes.md §8
 var rng := RandomNumberGenerator.new()    # 战斗/AI 用；种子跟着 run_seed
 var run_seed := 0
+var raid_turns_left := RAID_DURATION
+var extracted := false
+var raid_failed := false
+var stash: Array[String] = []
+var death_summary: Dictionary = {}
 
 ## 目标状态。activity 是 CDDA 的 player_activity 的最简版：
 ## 一个跨回合推进、可被打断的「正在做的事」。
 var repair_site := Vector2i(37, 24)
+var extract_site := DEFAULT_EXTRACT_POS
 var activity: Dictionary = {}       # {id, turns_left, total}
 var radio_fixed := false
 var defense_left := 0
@@ -84,8 +94,9 @@ func _init(db: Dictionary = {}, monsters: Dictionary = {}, seed_value: int = 0) 
 	player.moves = Actor.BASE_SPEED
 	actors.append(player)
 	_spawn_monsters()
+	_place_loot_containers()
 	_update_fov()
-	_push_log("你在一座空镇里醒来。目标：修好电台，等救援。")
+	_push_log("行动开始。搜索物资，带着战利品到西侧撤离点。")
 
 
 # ================================================================ 地图
@@ -215,6 +226,43 @@ func _spawn_items() -> void:
 		items.append({"id": String(entry["id"]), "pos": entry["pos"]})
 
 
+func _place_loot_containers() -> void:
+	containers = [
+		{"id": "house_cache", "name": "住宅储物柜", "pos": Vector2i(6, 5),
+			"loot": ["water", "canned_food", "bandage"], "searched": false},
+		{"id": "clinic_cache", "name": "诊所药柜", "pos": Vector2i(41, 6),
+			"loot": ["medkit", "antibiotics", "bandage"], "searched": false},
+		{"id": "armory_cache", "name": "警用装备箱", "pos": Vector2i(21, 4),
+			"loot": ["ammo", "knife", "helmet", "pants", "boots"], "searched": false},
+	]
+
+
+func container_at(cell: Vector2i) -> Dictionary:
+	for container: Dictionary in containers:
+		if container["pos"] == cell and not bool(container.get("searched", false)):
+			return container
+	return {}
+
+
+func search_container(container: Dictionary) -> bool:
+	if container.is_empty() or not containers.has(container) or bool(container.get("searched", false)):
+		return false
+	container["searched"] = true
+	var found: Array[String] = []
+	for item_id: String in container.get("loot", []):
+		items.append({"id": item_id, "pos": container["pos"]})
+		found.append(item_name(item_id))
+	_push_log("你搜查%s，发现：%s。" % [String(container["name"]), "、".join(found)])
+	if player.pos == container["pos"]:
+		var taken := take_items_at(player)
+		if not taken.is_empty():
+			var names: Array[String] = []
+			for item_id: String in taken:
+				names.append(item_name(item_id))
+			_push_log("收下了%s。" % "、".join(names))
+	return true
+
+
 ## 按 MONSTER_SPAWNS 放怪。数据来自 content/monsters.json，缺的跳过。
 func _spawn_monsters() -> void:
 	var index := 0
@@ -265,13 +313,30 @@ func items_at(cell: Vector2i) -> Array[Dictionary]:
 ## 把脚下的东西全塞进背包，返回拿到的原型 id（按放置顺序）。
 func take_items_at(actor: Actor) -> Array[String]:
 	var taken: Array[String] = []
+	var rejected: Array[String] = []
 	for i: int in range(items.size() - 1, -1, -1):
 		if items[i]["pos"] == actor.pos:
 			var item_id := String(items[i]["id"])
+			var item := Item.new(item_id)
+			var carry_error := actor.carry_error(item, item_db)
+			if not carry_error.is_empty():
+				rejected.append(carry_error)
+				continue
 			taken.push_front(item_id)
-			actor.take_item(Item.new(item_id))
+			actor.take_item(item)
+			run_loot.append({"id": item_id, "pos": actor.pos})
 			items.remove_at(i)
+	if not rejected.is_empty():
+		_push_log("拿不动：%s。" % "；".join(rejected))
 	return taken
+
+
+func drop_item(actor: Actor, item: Item) -> void:
+	items.append({"id": item.type_id, "pos": actor.pos})
+	for i: int in range(run_loot.size() - 1, -1, -1):
+		if String(run_loot[i].get("id", "")) == item.type_id:
+			run_loot.remove_at(i)
+			break
 
 
 # ================================================================ 动作
@@ -281,7 +346,7 @@ func take_items_at(actor: Actor) -> Array[String]:
 ## CDDA 的规则：只要还有 moves（> 0）就能做一次动作，代价可以把它扣成负数，
 ## 下个回合补回来。所以斜走 141 从 100 moves 出发是允许的，只是欠 41。
 func perform(actor: Actor, action: Action) -> bool:
-	if actor == null or not actor.alive:
+	if actor == null or not actor.alive or raid_failed or extracted:
 		return false
 	var reason := action.can(actor, self)
 	if reason != "":
@@ -338,7 +403,52 @@ func player_loot() -> bool:
 
 
 func player_use(item: Item) -> bool:
-	return perform(player, Actions.UseItem.new(item))
+	return perform(player, Actions.UseItem.new(item, {}))
+
+
+func player_use_method(item: Item, method: Dictionary) -> bool:
+	return perform(player, Actions.UseItem.new(item, method))
+
+
+func player_wield(item: Item) -> bool:
+	return perform(player, Actions.Wield.new(item))
+
+
+func player_unwield() -> bool:
+	return perform(player, Actions.Unwield.new())
+
+
+func player_wear(item: Item) -> bool:
+	return perform(player, Actions.Wear.new(item))
+
+
+func player_unwear(item: Item) -> bool:
+	return perform(player, Actions.Unwear.new(item))
+
+
+func player_drop(item: Item) -> bool:
+	return perform(player, Actions.Drop.new(item))
+
+
+func player_disassemble(item: Item) -> bool:
+	return perform(player, Actions.Disassemble.new(item))
+
+
+func player_search_container(container: Dictionary) -> bool:
+	return perform(player, Actions.SearchContainer.new(container))
+
+
+func player_toggle_run() -> bool:
+	if player.run_mode:
+		player.run_mode = false
+		_push_log("你放慢脚步。")
+		return true
+	if player.stamina < Actor.MIN_RUN_STAMINA:
+		_push_log("你喘得太厉害，暂时跑不动。")
+		return false
+	player.run_mode = true
+	_push_log("你开始跑步。")
+	return true
 
 
 func player_wait() -> bool:
@@ -347,13 +457,64 @@ func player_wait() -> bool:
 
 ## 交互（CDDA 的 examine，默认 e 键）：站在塔上就是修电台，旁边有门就推开。
 func player_examine() -> bool:
+	if player.pos == extract_site:
+		return player_extract()
+	var container := container_at(player.pos)
+	if not container.is_empty():
+		return player_search_container(container)
 	if player.pos == repair_site:
 		return player_repair()
 	for delta: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		var adjacent_container := container_at(player.pos + delta)
+		if not adjacent_container.is_empty():
+			return player_search_container(adjacent_container)
 		if is_closed_door(player.pos + delta):
 			return perform(player, Actions.Walk.new(delta.x, delta.y))
 	_push_log("这里没什么可看的。")
 	return false
+
+
+func player_extract() -> bool:
+	if extracted or dead or raid_failed:
+		return false
+	if raid_turns_left <= 0:
+		_push_log("撤离窗口已关闭。")
+		return false
+	if player.pos != extract_site:
+		_push_log("先到西侧撤离点，再按 E 撤离。")
+		return false
+	if player.moves <= 0:
+		_push_log("没有剩余行动时间，无法开始撤离。")
+		return false
+	player.moves = 0
+	if not _in_world_turn:
+		advance_turn()
+	if dead or raid_failed:
+		return false
+	extracted = true
+	won = true
+	for item: Item in player.inventory:
+		stash.append(item.type_id)
+	run_loot.clear()
+	_push_log("成功撤离！物资已带回基地。")
+	return true
+
+
+func _record_death() -> void:
+	if not death_summary.is_empty():
+		return
+	var lost_items: Array[String] = []
+	for item: Item in player.inventory:
+		lost_items.append(item.type_id)
+	death_summary = {"turn": turn, "loot": lost_items, "position": player.pos}
+	run_loot.clear()
+	player.inventory.clear()
+	player.worn.clear()
+	player.wielded = null
+	if raid_failed:
+		_push_log("本次行动失败，携带物资遗失。")
+	else:
+		_push_log("你倒下了，本局携带物资遗失。")
 
 
 ## 在塔上修电台。这是「活动」不是瞬间动作：要连续等 5 回合，动一下就断。
@@ -446,13 +607,21 @@ func advance_turn() -> void:
 		return
 	_in_world_turn = true
 	turn += 1
+	if not extracted:
+		raid_turns_left = maxi(0, raid_turns_left - 1)
+		if raid_turns_left == 0:
+			raid_failed = true
+			_push_log("撤离窗口关闭，本次行动失败。")
 	for actor: Actor in actors:
 		if actor.alive:
-			actor.gain_turn_moves()
+			actor.gain_turn_moves(item_db if actor == player else {})
 	_tick_needs()
+	_tick_stamina()
 	_tick_activity()
 	_run_monsters()
 	_tick_defense()
+	if dead or raid_failed:
+		_record_death()
 	_update_fov()
 	_in_world_turn = false
 
@@ -472,6 +641,16 @@ func _tick_needs() -> void:
 		player.take_damage(2)
 	if not player.alive:
 		_push_log("你倒下了。")
+
+
+func _tick_stamina() -> void:
+	if not player.alive:
+		return
+	var recovery := 10 if player.stamina_used_this_turn else 20
+	if player.hunger < 20 or player.thirst < 20:
+		recovery = maxi(1, recovery / 2)
+	player.recover_stamina(recovery)
+	player.stamina_used_this_turn = false
 
 
 ## 怪物回合：谁攒够一步的 moves 谁就动，动到没钱为止。
@@ -547,6 +726,12 @@ func to_dict() -> Dictionary:
 	var actor_data: Array = []
 	for actor: Actor in actors:
 		actor_data.append(actor.to_dict())
+	var container_data: Array = []
+	for container: Dictionary in containers:
+		var saved := container.duplicate(true)
+		var pos: Vector2i = container["pos"]
+		saved["pos"] = [pos.x, pos.y]
+		container_data.append(saved)
 	return {
 		"version": SAVE_VERSION,
 		"turn": turn,
@@ -555,6 +740,12 @@ func to_dict() -> Dictionary:
 		"actors": actor_data,
 		"doors_open": open_doors,
 		"items": ground,
+		"containers": container_data,
+		"raid_turns_left": raid_turns_left,
+		"extracted": extracted,
+		"raid_failed": raid_failed,
+		"stash": stash.duplicate(),
+		"death_summary": death_summary.duplicate(true),
 		"activity": activity.duplicate(),
 		"radio_fixed": radio_fixed,
 		"defense_left": defense_left,
@@ -565,7 +756,8 @@ func to_dict() -> Dictionary:
 
 ## 返回 false 表示存档版本不认识，什么都没改。
 func from_dict(data: Dictionary) -> bool:
-	if int(data.get("version", 0)) != SAVE_VERSION:
+	var version := int(data.get("version", 0))
+	if version < 5 or version > SAVE_VERSION:
 		return false
 	turn = int(data.get("turn", 1))
 	# RNG 状态存成字符串：JSON 的数字是浮点，64 位 state 直接存会掉精度。
@@ -581,6 +773,17 @@ func from_dict(data: Dictionary) -> bool:
 	for entry: Variant in data.get("items", []):
 		var pos: Array = entry["pos"]
 		items.append({"id": String(entry["id"]), "pos": Vector2i(int(pos[0]), int(pos[1]))})
+	containers.clear()
+	for entry: Variant in data.get("containers", []):
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var container: Dictionary = (entry as Dictionary).duplicate(true)
+		var pos: Variant = container.get("pos", [0, 0])
+		if typeof(pos) == TYPE_ARRAY:
+			container["pos"] = Vector2i(int(pos[0]), int(pos[1]))
+		containers.append(container)
+	if containers.is_empty():
+		_place_loot_containers()
 	actors.clear()
 	player = null
 	for entry: Variant in data.get("actors", []):
@@ -597,8 +800,18 @@ func from_dict(data: Dictionary) -> bool:
 	radio_fixed = bool(data.get("radio_fixed", false))
 	defense_left = int(data.get("defense_left", 0))
 	won = bool(data.get("won", false))
+	raid_turns_left = int(data.get("raid_turns_left", RAID_DURATION))
+	extracted = bool(data.get("extracted", false))
+	raid_failed = bool(data.get("raid_failed", false))
+	stash.clear()
+	for entry: Variant in data.get("stash", []):
+		stash.append(String(entry))
+	death_summary = (data.get("death_summary", {}) as Dictionary).duplicate(true)
 	if player == null:
 		return false
+	run_loot.clear()
+	for item: Item in player.inventory:
+		run_loot.append({"id": item.type_id, "pos": player.pos})
 	_update_fov()
 	return true
 
