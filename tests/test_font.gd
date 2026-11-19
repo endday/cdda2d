@@ -21,6 +21,7 @@ func run() -> Array[String]:
 	_checks = 0
 
 	test_subset_covers_sources()
+	test_button_factories_apply_embedded_font()
 
 	return _failures
 
@@ -65,6 +66,16 @@ func test_subset_covers_sources() -> void:
 			break
 	_expect(false, "字体缺 %d 个字符，例如 %s —— 改完文案要跑 tools/build_font.py"
 		% [missing.size(), ", ".join(samples)])
+
+
+func test_button_factories_apply_embedded_font() -> void:
+	var source := FileAccess.get_file_as_string("res://scenes/main.gd")
+	_expect(source.count("\tvar button := Button.new()") == 1,
+		"所有按钮都应该通过带内置字体的统一工厂创建")
+	_expect(source.count("\tvar button := CheckButton.new()") == 1,
+		"所有勾选按钮都应该通过带内置字体的统一工厂创建")
+	_expect(source.contains("control.add_theme_font_override(\"font\", ui_font)"),
+		"交互控件工厂应该设置内置字体")
 
 
 func _walk(path: String, out: Array[String]) -> void:

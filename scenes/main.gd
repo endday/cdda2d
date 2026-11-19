@@ -260,7 +260,7 @@ func _build_ui() -> void:
 	inventory_list.add_theme_constant_override("separation", 6)
 	inv_panel.add_child(inventory_list)
 	_build_equipment_panel(inv_panel)
-	inventory_close_button = Button.new()
+	inventory_close_button = _new_button()
 	inventory_close_button.text = "ESC  关闭"
 	inventory_close_button.position = Vector2(1018, 18)
 	inventory_close_button.size = Vector2(110, 34)
@@ -294,7 +294,7 @@ func _build_deployment_screen(layer: CanvasLayer) -> void:
 	deployment_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	deployment_list.add_theme_constant_override("separation", 5)
 	deployment_scroll.add_child(deployment_list)
-	var deploy_button := Button.new()
+	var deploy_button := _new_button()
 	deploy_button.text = "DEPLOY  /  出发"
 	deploy_button.position = Vector2(548, 486)
 	deploy_button.size = Vector2(202, 46)
@@ -327,7 +327,7 @@ func _rebuild_deployment_list() -> void:
 	for i: int in profile_stash.size():
 		var item_id: String = profile_stash[i]
 		var prototype: Dictionary = item_data.get(item_id, {})
-		var check := CheckButton.new()
+		var check := _new_check_button()
 		check.text = "%s    %.1f kg   %.1f L" % [
 			String(prototype.get("name", item_id)),
 			float(prototype.get("weight", 0.0)),
@@ -345,7 +345,7 @@ func _rebuild_deployment_list() -> void:
 
 
 func _add_starter_kit_card(category: String, item_name: String, detail: String) -> void:
-	var card := Button.new()
+	var card := _new_button()
 	card.text = "%s     %s\n           %s" % [category, item_name, detail]
 	card.custom_minimum_size = Vector2(700, 72)
 	card.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -441,7 +441,7 @@ func _build_equipment_panel(parent: Panel) -> void:
 
 
 func _add_equipment_slot(slot_id: String, title: String, position: Vector2, size: Vector2) -> void:
-	var button := Button.new()
+	var button := _new_button()
 	button.name = "Equipment_" + slot_id
 	button.text = title + "\n空"
 	button.position = position
@@ -522,7 +522,7 @@ func _build_action_buttons(parent: Panel) -> void:
 	]
 	var x := 16.0
 	for entry: Dictionary in entries:
-		var button := Button.new()
+		var button := _new_button()
 		button.text = "%s  %s" % [entry["hotkey"], entry["label"]]
 		button.position = Vector2(x, 42)
 		button.size = Vector2(104, 42)
@@ -564,12 +564,28 @@ func _label(parent: Node, text: String, pos: Vector2, font_size: int, color: Col
 	var label := Label.new()
 	label.text = text
 	label.position = pos
-	if ui_font != null:
-		label.add_theme_font_override("font", ui_font)
+	_apply_ui_font(label)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	parent.add_child(label)
 	return label
+
+
+func _apply_ui_font(control: Control) -> void:
+	if ui_font != null:
+		control.add_theme_font_override("font", ui_font)
+
+
+func _new_button() -> Button:
+	var button := Button.new()
+	_apply_ui_font(button)
+	return button
+
+
+func _new_check_button() -> CheckButton:
+	var button := CheckButton.new()
+	_apply_ui_font(button)
+	return button
 
 
 func _bar(parent: Node, pos: Vector2, size: Vector2, color: Color) -> Dictionary:
@@ -794,7 +810,7 @@ func _rebuild_inventory_panel() -> void:
 
 
 func _inventory_button(text: String) -> Button:
-	var button := Button.new()
+	var button := _new_button()
 	button.text = text
 	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.custom_minimum_size = Vector2(248, 58)
