@@ -30,6 +30,8 @@ var moves := 0
 var speed := BASE_SPEED
 var hunger := 100
 var thirst := 100
+var hunger_deprivation_turns := 0
+var thirst_deprivation_turns := 0
 var infection := 0
 var stamina := MAX_STAMINA
 var max_stamina := MAX_STAMINA
@@ -295,6 +297,8 @@ func to_dict() -> Dictionary:
 		"speed": speed,
 		"hunger": hunger,
 		"thirst": thirst,
+		"hunger_deprivation_turns": hunger_deprivation_turns,
+		"thirst_deprivation_turns": thirst_deprivation_turns,
 		"infection": infection,
 		"stamina": stamina,
 		"max_stamina": max_stamina,
@@ -343,6 +347,8 @@ func from_dict(data: Dictionary) -> void:
 	speed = int(data.get("speed", BASE_SPEED))
 	hunger = int(data.get("hunger", 100))
 	thirst = int(data.get("thirst", 100))
+	hunger_deprivation_turns = maxi(0, int(data.get("hunger_deprivation_turns", 0)))
+	thirst_deprivation_turns = maxi(0, int(data.get("thirst_deprivation_turns", 0)))
 	infection = int(data.get("infection", 0))
 	max_stamina = int(data.get("max_stamina", MAX_STAMINA))
 	stamina = clampi(int(data.get("stamina", max_stamina)), 0, max_stamina)

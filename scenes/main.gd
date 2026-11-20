@@ -33,6 +33,8 @@ var raid_label: Label
 var load_label: Label
 var threat_label: Label
 var interaction_label: Label
+var auto_supply_toggle: CheckButton
+var deployment_auto_supply_toggle: CheckButton
 var bottom_panel: Panel
 var action_buttons: Array[Button] = []
 var equipment_panel: Panel
@@ -127,6 +129,8 @@ func _load_profile() -> void:
 		var item_id := String(entry)
 		if item_data.has(item_id):
 			profile_stash.append(item_id)
+	if (parsed as Dictionary).has("auto_supply_enabled"):
+		world.auto_supply_enabled = bool((parsed as Dictionary)["auto_supply_enabled"])
 
 
 func _save_profile() -> void:
@@ -134,7 +138,10 @@ func _save_profile() -> void:
 	if file == null:
 		world.log_message("仓库存档失败。")
 		return
-	file.store_string(JSON.stringify({"stash": profile_stash}))
+	file.store_string(JSON.stringify({
+		"stash": profile_stash,
+		"auto_supply_enabled": world.auto_supply_enabled,
+	}))
 
 
 ## 内容有问题就别猜，直接报到日志里，方便测试和 CI 抓。
@@ -205,7 +212,7 @@ func _build_ui() -> void:
 	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(ui_root)
 
-	survivor_panel = _panel(ui_root, Rect2(18, 18, 340, 178))
+	survivor_panel = _panel(ui_root, Rect2(18, 18, 340, 208))
 	var panel_title := _label(survivor_panel, "幸存者  /  行动 01", Vector2(14, -1), 11, Color("#76908c"))
 	panel_title.position.y = -18
 	labels["hp"] = _label(survivor_panel, "", Vector2(14, 10), 15, Color("#e8f1ea"))
@@ -217,6 +224,16 @@ func _build_ui() -> void:
 	bars["stamina"] = _bar(survivor_panel, Vector2(14, 108), Vector2(312, 8), Color("#d69b5a"))
 	labels["ap"] = _label(survivor_panel, "", Vector2(14, 124), 12, Color("#9fd4c4"))
 	labels["turn"] = _label(survivor_panel, "", Vector2(14, 148), 12, Color("#7d9188"))
+	auto_supply_toggle = _new_check_button()
+	auto_supply_toggle.text = "自动补给"
+	auto_supply_toggle.position = Vector2(8, 174)
+	auto_supply_toggle.size = Vector2(190, 26)
+	auto_supply_toggle.button_pressed = world.auto_supply_enabled
+	auto_supply_toggle.tooltip_text = "需求低于 25% 且附近没有可见敌人时，自动使用普通食物或水，每件消耗 50 行动点。"
+	auto_supply_toggle.add_theme_font_size_override("font_size", 11)
+	auto_supply_toggle.add_theme_color_override("font_color", Color("#c3d0b9"))
+	auto_supply_toggle.toggled.connect(_on_auto_supply_toggled)
+	survivor_panel.add_child(auto_supply_toggle)
 
 	raid_panel = _panel(ui_root, Rect2(930, 18, 332, 194))
 	_label(raid_panel, "行动状态", Vector2(16, 12), 11, Color("#76908c"))
@@ -399,6 +416,16 @@ func _build_deployment_screen(parent: Control) -> void:
 	deployment_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	deployment_list.add_theme_constant_override("separation", 5)
 	deployment_scroll.add_child(deployment_list)
+	deployment_auto_supply_toggle = _new_check_button()
+	deployment_auto_supply_toggle.text = "自动补给"
+	deployment_auto_supply_toggle.position = Vector2(30, 496)
+	deployment_auto_supply_toggle.size = Vector2(220, 32)
+	deployment_auto_supply_toggle.button_pressed = world.auto_supply_enabled
+	deployment_auto_supply_toggle.tooltip_text = "需求低于 25% 且附近没有可见敌人时自动使用普通补给。"
+	deployment_auto_supply_toggle.add_theme_font_size_override("font_size", 12)
+	deployment_auto_supply_toggle.add_theme_color_override("font_color", Color("#c3d0b9"))
+	deployment_auto_supply_toggle.toggled.connect(_on_auto_supply_toggled)
+	deployment_panel.add_child(deployment_auto_supply_toggle)
 	var deploy_button := _new_button()
 	deploy_button.text = "出发行动"
 	deploy_button.position = Vector2(548, 486)
@@ -420,12 +447,20 @@ func _open_deployment_screen() -> void:
 	_refresh_ui()
 
 
+func _on_auto_supply_toggled(enabled: bool) -> void:
+	world.auto_supply_enabled = enabled
+	_save_profile()
+	world.log_message("自动补给已开启。" if enabled else "自动补给已关闭。")
+	refresh_ui()
+
+
 func _rebuild_deployment_list() -> void:
 	for child: Node in deployment_list.get_children():
 		child.free()
 	if profile_stash.is_empty():
 		_add_starter_kit_card("主手武器", "小刀", "0.4 kg  ·  6 近战伤害")
-		_add_starter_kit_card("补给", "瓶装水", "0.5 kg  ·  恢复口渴")
+		_add_starter_kit_card("饮水", "瓶装水", "0.5 kg  ·  恢复 40 水分")
+		_add_starter_kit_card("食物", "罐头", "0.4 kg  ·  恢复 35 饱腹")
 		_add_starter_kit_card("医疗", "绷带", "0.1 kg  ·  恢复生命")
 		_add_starter_kit_card("背负", "背包", "1.0 kg  ·  增加 20 L 容积")
 		deployment_info.text = "基础口袋 6 L，背包装备后共 26 L。成功撤离可将物资存入仓库。"
@@ -453,7 +488,7 @@ func _rebuild_deployment_list() -> void:
 func _add_starter_kit_card(category: String, item_name: String, detail: String) -> void:
 	var card := _new_button()
 	card.text = "%s     %s\n           %s" % [category, item_name, detail]
-	card.custom_minimum_size = Vector2(700, 72)
+	card.custom_minimum_size = Vector2(700, 64)
 	card.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	card.disabled = true
 	card.add_theme_font_size_override("font_size", 13)
@@ -530,7 +565,7 @@ func _deploy_raid() -> void:
 			remaining.append(item.type_id)
 	profile_stash = remaining
 	if loaded == 0:
-		for item_id: String in ["knife", "water", "bandage", "backpack"]:
+		for item_id: String in ["knife", "water", "canned_food", "bandage", "backpack"]:
 			var item := Item.new(item_id)
 			if not item_data.has(item_id) or not world.player.carry_error(item, item_data).is_empty():
 				continue
@@ -758,6 +793,10 @@ func _set_bar(name: String, value: int, maximum: int, color: Color) -> void:
 
 func _refresh_ui() -> void:
 	var p := world.player
+	if auto_supply_toggle != null:
+		auto_supply_toggle.set_pressed_no_signal(world.auto_supply_enabled)
+	if deployment_auto_supply_toggle != null:
+		deployment_auto_supply_toggle.set_pressed_no_signal(world.auto_supply_enabled)
 	labels["hp"].text = "生命 %d / %d" % [p.hp, p.hp_max]
 	var hp_ratio := float(p.hp) / float(maxi(1, p.hp_max))
 	_set_bar("hp", p.hp, p.hp_max, Color("#c0504d").lerp(Color("#8fbf6a"), hp_ratio))
@@ -1742,7 +1781,9 @@ func _after_action() -> void:
 
 
 func _start_new_raid() -> void:
+	var auto_supply_enabled := world.auto_supply_enabled
 	world = World.new(item_data, monster_data)
+	world.auto_supply_enabled = auto_supply_enabled
 	world.stash = profile_stash.duplicate()
 	profile_outcome_saved = false
 	_visual.clear()

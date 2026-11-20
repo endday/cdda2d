@@ -15,7 +15,11 @@ const W := 48
 const H := 32
 const FOV_RADIUS := 8
 const MONSTER_COST := 100     # 怪物一步/一爪的参考价格（实际按动作自己算）
-const SAVE_VERSION := 8
+const SAVE_VERSION := 9
+const NEEDS_DEPLETION_PER_TURN := 1
+const NEEDS_ZERO_GRACE_TURNS := 5
+const AUTO_SUPPLY_THRESHOLD := 25
+const AUTO_SUPPLY_MOVE_COST := 50
 
 ## 电台目标：站到塔上、带齐三件东西、修 5 回合、然后守 10 回合。
 const REPAIR_TURNS := 5
@@ -44,6 +48,7 @@ var run_seed := 0
 var raid_turns_left := RAID_DURATION
 var extracted := false
 var raid_failed := false
+var auto_supply_enabled := true
 var stash: Array[String] = []
 var death_summary: Dictionary = {}
 
@@ -726,24 +731,98 @@ func advance_turn() -> void:
 	if dead or raid_failed:
 		_record_death()
 	_update_fov()
+	if not dead and not raid_failed and not extracted:
+		_auto_supply_needs()
 	_in_world_turn = false
 
 
 func _tick_needs() -> void:
 	if not player.alive:
 		return
-	player.hunger = maxi(0, player.hunger - 2)
-	player.thirst = maxi(0, player.thirst - 3)
+	var previous_hunger := player.hunger
+	var previous_thirst := player.thirst
+	player.hunger = maxi(0, player.hunger - NEEDS_DEPLETION_PER_TURN)
+	player.thirst = maxi(0, player.thirst - NEEDS_DEPLETION_PER_TURN)
+	if previous_hunger > AUTO_SUPPLY_THRESHOLD and player.hunger <= AUTO_SUPPLY_THRESHOLD:
+		_push_log("饱腹偏低，留意补给。")
+	if previous_thirst > AUTO_SUPPLY_THRESHOLD and player.thirst <= AUTO_SUPPLY_THRESHOLD:
+		_push_log("水分偏低，留意补给。")
 	if player.infection > 0:
 		player.infection = mini(100, player.infection + 1)
 	if player.hunger <= 0:
-		player.take_damage(2)
+		player.hunger_deprivation_turns += 1
+		if player.hunger_deprivation_turns == 1:
+			_push_log("饱腹见底，撑过 5 回合后才会损失生命。")
+		if player.hunger_deprivation_turns > NEEDS_ZERO_GRACE_TURNS:
+			player.take_damage(2)
+	else:
+		player.hunger_deprivation_turns = 0
 	if player.thirst <= 0:
-		player.take_damage(3)
+		player.thirst_deprivation_turns += 1
+		if player.thirst_deprivation_turns == 1:
+			_push_log("水分见底，撑过 5 回合后才会损失生命。")
+		if player.thirst_deprivation_turns > NEEDS_ZERO_GRACE_TURNS:
+			player.take_damage(2)
+	else:
+		player.thirst_deprivation_turns = 0
 	if player.infection >= 100:
 		player.take_damage(2)
 	if not player.alive:
 		_push_log("你倒下了。")
+
+
+func _auto_supply_needs() -> void:
+	if not auto_supply_enabled or player.cell_pos == extract_site or _has_visible_threat():
+		return
+	if player.thirst <= AUTO_SUPPLY_THRESHOLD and _try_auto_consume_for_need("thirst"):
+		return
+	if player.hunger <= AUTO_SUPPLY_THRESHOLD:
+		_try_auto_consume_for_need("hunger")
+
+
+func _has_visible_threat() -> bool:
+	for actor: Actor in actors:
+		if actor != player and actor.alive and visible.has(actor.cell_pos):
+			return true
+	return false
+
+
+func _try_auto_consume_for_need(need: String) -> bool:
+	for item: Item in player.inventory:
+		var prototype := item.prototype(item_db)
+		var flags: Array = prototype.get("flags", [])
+		if not flags.has("COMESTIBLE"):
+			continue
+		for entry: Variant in prototype.get("use_methods", []):
+			if typeof(entry) != TYPE_DICTIONARY:
+				continue
+			var method: Dictionary = entry
+			if String(method.get("type", "")) != "consume":
+				continue
+			if need == "thirst" and int(method.get("quench", 0)) <= 0:
+				continue
+			if need == "hunger" and int(method.get("calories", 0)) <= 0:
+				continue
+			if not ItemUse.can_use_method(player, self, item, method).is_empty():
+				continue
+			var result := ItemUse.use_method(player, self, item, method)
+			if not bool(result.get("ok", false)):
+				continue
+			if bool(result.get("consume", false)):
+				player.remove_item(item)
+			player.moves -= AUTO_SUPPLY_MOVE_COST
+			command_log.append({
+				"turn": turn,
+				"actor": player.id,
+				"action": "auto_supply",
+				"need": need,
+				"item": item.type_id,
+			})
+			_push_log("自动补给：%s（消耗 %d 行动点）" % [
+				String(result.get("message", "已使用补给")), AUTO_SUPPLY_MOVE_COST,
+			])
+			return true
+	return false
 
 
 func _tick_stamina() -> void:
@@ -847,6 +926,7 @@ func to_dict() -> Dictionary:
 		"raid_turns_left": raid_turns_left,
 		"extracted": extracted,
 		"raid_failed": raid_failed,
+		"auto_supply_enabled": auto_supply_enabled,
 		"stash": stash.duplicate(),
 		"death_summary": death_summary.duplicate(true),
 		"activity": activity.duplicate(),
@@ -906,6 +986,7 @@ func from_dict(data: Dictionary) -> bool:
 	raid_turns_left = int(data.get("raid_turns_left", RAID_DURATION))
 	extracted = bool(data.get("extracted", false))
 	raid_failed = bool(data.get("raid_failed", false))
+	auto_supply_enabled = bool(data.get("auto_supply_enabled", true))
 	stash.clear()
 	for entry: Variant in data.get("stash", []):
 		stash.append(String(entry))

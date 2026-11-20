@@ -25,6 +25,8 @@ func run() -> Array[String]:
 	test_door_blocks_until_opened()
 	test_loot_and_use()
 	test_needs_tick()
+	test_auto_supply_priority_and_cost()
+	test_auto_supply_pauses_near_visible_enemy()
 	test_save_roundtrip()
 
 	return _failures
@@ -41,8 +43,10 @@ func _expect(condition: bool, message: String) -> void:
 func _db() -> Dictionary:
 	return {
 		"water": {"id": "water", "name": "瓶装水",
+			"flags": ["COMESTIBLE"],
 			"use_methods": [{"type": "consume", "quench": 40, "msg": "瓶装水"}]},
 		"canned_food": {"id": "canned_food", "name": "罐头",
+			"flags": ["COMESTIBLE"],
 			"use_methods": [{"type": "consume", "calories": 35, "msg": "罐头"}]},
 		"bandage": {"id": "bandage", "name": "绷带",
 			"use_methods": [{"type": "heal", "heal": 15, "msg": "绷带"}]},
@@ -109,12 +113,61 @@ func test_loot_and_use() -> void:
 
 func test_needs_tick() -> void:
 	var world := World.new(_db())
+	world.actors.clear()
+	world.actors.append(world.player)
+	world.auto_supply_enabled = false
+	world.player.hunger = 10
+	world.player.thirst = 10
+	world.advance_turn()
+	_expect(world.player.hunger == 9, "每回合饱腹应只下降 1 点，实际 %d" % world.player.hunger)
+	_expect(world.player.thirst == 9, "每回合水分应只下降 1 点，实际 %d" % world.player.thirst)
 	world.player.hunger = 1
 	world.player.thirst = 1
 	world.advance_turn()
 	_expect(world.player.hunger == 0, "饥饿应降到 0，实际 %d" % world.player.hunger)
 	_expect(world.player.thirst == 0, "口渴应降到 0，实际 %d" % world.player.thirst)
-	_expect(world.player.hp < 100, "饥饿/口渴见底应掉血，实际 %d" % world.player.hp)
+	_expect(world.player.hp == 100, "需求见底后应先进入宽限期，实际 %d" % world.player.hp)
+	for _turn: int in range(World.NEEDS_ZERO_GRACE_TURNS - 1):
+		world.advance_turn()
+	_expect(world.player.hp == 100, "宽限期内不应掉血，实际 %d" % world.player.hp)
+	world.advance_turn()
+	_expect(world.player.hp < 100, "宽限期结束后需求见底应掉血，实际 %d" % world.player.hp)
+
+
+func test_auto_supply_priority_and_cost() -> void:
+	var world := World.new(_db())
+	world.actors.clear()
+	world.actors.append(world.player)
+	world.player.hunger = 24
+	world.player.thirst = 24
+	world.player.moves = 0
+	world.player.take_item(Item.new("water"))
+	world.player.take_item(Item.new("canned_food"))
+	world.advance_turn()
+	_expect(world.player.thirst == 63, "自动补给应优先喝水并恢复 40，实际 %d" % world.player.thirst)
+	_expect(world.player.hunger == 23, "一次回合最多自动使用一件补给，实际 %d" % world.player.hunger)
+	_expect(not world.player.has_item("water"), "自动喝水应消耗瓶装水")
+	_expect(world.player.has_item("canned_food"), "自动补给应保留另一种食物")
+	_expect(world.player.moves == 50, "自动补给应消耗 50 行动点，实际 %d" % world.player.moves)
+	_expect(world.log_lines.back().contains("自动补给"), "自动使用补给应写入日志")
+
+
+func test_auto_supply_pauses_near_visible_enemy() -> void:
+	var world := World.new(_db())
+	world.actors.clear()
+	world.actors.append(world.player)
+	var enemy := Actor.new()
+	enemy.id = "test_enemy"
+	enemy.pos = world.player.pos + Vector2i.RIGHT
+	enemy.speed = 0
+	world.actors.append(enemy)
+	world.player.thirst = 24
+	world.player.moves = 0
+	world.player.take_item(Item.new("water"))
+	world._update_fov()
+	world.advance_turn()
+	_expect(world.player.has_item("water"), "附近有可见敌人时应保留补给")
+	_expect(world.player.thirst == 23, "战斗中应暂停自动喝水，实际 %d" % world.player.thirst)
 
 
 func test_save_roundtrip() -> void:
@@ -122,6 +175,9 @@ func test_save_roundtrip() -> void:
 	world.player.pos = Vector2i(6, 6)
 	world.player_loot()
 	world.player.thirst = 42
+	world.player.hunger_deprivation_turns = 3
+	world.player.thirst_deprivation_turns = 2
+	world.auto_supply_enabled = false
 	world.open_door(Vector2i(8, 11))
 	var data := world.to_dict()
 	_expect(data.has("version"), "存档应带版本号")
@@ -130,6 +186,9 @@ func test_save_roundtrip() -> void:
 	_expect(restored.from_dict(data), "同版本存档应能读")
 	_expect(restored.player.pos == Vector2i(6, 6), "读档后位置应一致")
 	_expect(restored.player.thirst == 42, "读档后口渴应一致")
+	_expect(restored.player.hunger_deprivation_turns == 3, "读档后饥饿宽限进度应一致")
+	_expect(restored.player.thirst_deprivation_turns == 2, "读档后口渴宽限进度应一致")
+	_expect(not restored.auto_supply_enabled, "读档后自动补给开关应保留")
 	_expect(restored.player.inventory.size() == 1, "读档后背包应一致")
 	_expect(restored.player.has_item("water"), "读档后应该还带着水")
 	_expect(not restored.is_closed_door(Vector2i(8, 11)), "读档后开着的门应还是开的")
