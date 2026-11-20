@@ -19,11 +19,16 @@ const MOVE_SMOOTH := 16.0    # 越大越跟手；16 ≈ 0.15 秒走完一格
 var world: World
 var camera: Camera2D
 var ui_layer: CanvasLayer
+var ui_root: Control
 var labels: Dictionary = {}
 var bars: Dictionary = {}
+var survivor_panel: Panel
+var raid_panel: Panel
+var log_panel: Panel
 var log_label: Label
 var status_label: Label
 var hint_label: Label
+var attribution_label: Label
 var raid_label: Label
 var load_label: Label
 var threat_label: Label
@@ -71,6 +76,7 @@ var monster_data: Dictionary = {}
 var profile_stash: Array[String] = []
 var profile_outcome_saved := false
 var mouse_destination := Vector2i(-999, -999)
+var mouse_destination_position := Vector2.ZERO
 var mouse_move_timer := 0.0
 var hover_cell := Vector2i(-999, -999)
 var mouse_search_container := false
@@ -194,61 +200,67 @@ func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	ui_layer = layer
 	add_child(layer)
+	ui_root = Control.new()
+	ui_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(ui_root)
 
-	var panel := _panel(layer, Rect2(18, 18, 340, 174))
-	var panel_title := _label(panel, "SURVIVOR  /  RAID 01", Vector2(14, -1), 11, Color("#76908c"))
+	survivor_panel = _panel(ui_root, Rect2(18, 18, 340, 178))
+	var panel_title := _label(survivor_panel, "幸存者  /  行动 01", Vector2(14, -1), 11, Color("#76908c"))
 	panel_title.position.y = -18
-	labels["hp"] = _label(panel, "", Vector2(14, 10), 15, Color("#e8f1ea"))
-	bars["hp"] = _bar(panel, Vector2(14, 34), Vector2(272, 10), Color("#c0504d"))
-	labels["needs"] = _label(panel, "", Vector2(14, 52), 13, Color("#c8d6c0"))
-	bars["hunger"] = _bar(panel, Vector2(14, 76), Vector2(132, 8), Color("#c9a15a"))
-	bars["thirst"] = _bar(panel, Vector2(154, 76), Vector2(132, 8), Color("#5a9fc9"))
-	bars["stamina"] = _bar(panel, Vector2(14, 92), Vector2(312, 8), Color("#d69b5a"))
-	labels["ap"] = _label(panel, "", Vector2(14, 108), 13, Color("#9fd4c4"))
-	labels["turn"] = _label(panel, "", Vector2(14, 132), 12, Color("#7d9188"))
+	labels["hp"] = _label(survivor_panel, "", Vector2(14, 10), 15, Color("#e8f1ea"))
+	bars["hp"] = _bar(survivor_panel, Vector2(14, 34), Vector2(272, 10), Color("#c0504d"))
+	labels["needs"] = _label(survivor_panel, "", Vector2(14, 52), 13, Color("#c8d6c0"))
+	bars["hunger"] = _bar(survivor_panel, Vector2(14, 76), Vector2(132, 8), Color("#c9a15a"))
+	bars["thirst"] = _bar(survivor_panel, Vector2(154, 76), Vector2(132, 8), Color("#5a9fc9"))
+	labels["stamina"] = _label(survivor_panel, "", Vector2(14, 90), 11, Color("#d9b27b"))
+	bars["stamina"] = _bar(survivor_panel, Vector2(14, 108), Vector2(312, 8), Color("#d69b5a"))
+	labels["ap"] = _label(survivor_panel, "", Vector2(14, 124), 12, Color("#9fd4c4"))
+	labels["turn"] = _label(survivor_panel, "", Vector2(14, 148), 12, Color("#7d9188"))
 
-	var raid_panel := _panel(layer, Rect2(930, 18, 332, 194))
-	_label(raid_panel, "RAID STATUS", Vector2(16, 12), 11, Color("#76908c"))
+	raid_panel = _panel(ui_root, Rect2(930, 18, 332, 194))
+	_label(raid_panel, "行动状态", Vector2(16, 12), 11, Color("#76908c"))
 	raid_label = _label(raid_panel, "", Vector2(16, 34), 15, Color("#eecb80"))
 	threat_label = _label(raid_panel, "", Vector2(16, 64), 13, Color("#c3d0b9"))
 	load_label = _label(raid_panel, "", Vector2(16, 92), 12, Color("#9fd4c4"))
 	load_label.size = Vector2(300, 42)
 	_label(raid_panel, "操作提示", Vector2(16, 146), 11, Color("#76908c"))
-	_label(raid_panel, "左键移动/目标   右键检查   I 打开背包", Vector2(16, 164), 11, Color("#c3d0b9"))
+	_label(raid_panel, "左键移动/目标   右键查看   I 背包", Vector2(16, 164), 11, Color("#c3d0b9"))
 
-	var log_panel := _panel(layer, Rect2(18, 552, 620, 112))
+	log_panel = _panel(ui_root, Rect2(18, 552, 620, 112))
 	log_label = _label(log_panel, "", Vector2(14, 8), 13, Color("#c3d0b9"))
 	log_label.size = Vector2(592, 92)
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	status_label = _label(layer, "", Vector2(382, 28), 15, Color("#eecb80"))
+	status_label = _label(ui_root, "", Vector2(382, 28), 15, Color("#eecb80"))
 	status_label.size = Vector2(520, 54)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	interaction_label = _label(layer, "", Vector2(382, 88), 13, Color("#c3d0b9"))
+	interaction_label = _label(ui_root, "", Vector2(382, 88), 13, Color("#c3d0b9"))
 	interaction_label.size = Vector2(500, 44)
 	interaction_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint_label = _label(layer,
+	hint_label = _label(ui_root,
 		"WASD/方向键/hjkl 走，yubn 斜走   ' / \" 跑步   i 背包   , 搜   e 交互   . 等   F5 存 F9 读 R 重开",
 		Vector2(18, 682), 11, Color("#7d9188"))
 	# CC BY-SA 要求署名：把这行留在画面里，别只写在 README。
-	_label(layer, "Tiles: Cataclysm DDA UltiCa, CC BY-SA 3.0",
+	attribution_label = _label(ui_root, "Tiles: Cataclysm DDA UltiCa, CC BY-SA 3.0",
 		Vector2(940, 704), 11, Color("#7d9188"))
+	attribution_label.size = Vector2(322, 18)
+	attribution_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
-	bottom_panel = _panel(layer, Rect2(662, 552, 600, 112))
+	bottom_panel = _panel(ui_root, Rect2(662, 552, 600, 112))
 	_build_action_buttons(bottom_panel)
 
 	inventory_overlay = ColorRect.new()
-	inventory_overlay.position = Vector2.ZERO
-	inventory_overlay.size = Vector2(1280, 720)
+	inventory_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	inventory_overlay.color = Color(0.01, 0.018, 0.026, 0.88)
 	inventory_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	inventory_overlay.visible = false
-	layer.add_child(inventory_overlay)
+	ui_root.add_child(inventory_overlay)
 
-	inv_panel = _panel(layer, Rect2(64, 42, 1152, 636))
+	inv_panel = _panel(ui_root, Rect2(64, 42, 1152, 636))
 	inv_panel.visible = false
-	var inventory_header := _label(inv_panel, "INVENTORY  /  EQUIPMENT", Vector2(24, 18), 18, Color("#e7f4ef"))
-	var inventory_subtitle := _label(inv_panel, "RAID LOADOUT  ·  物品、装备与快捷栏", Vector2(26, 47), 11, Color("#7fa99d"))
+	var inventory_header := _label(inv_panel, "物品栏  /  装备", Vector2(24, 18), 18, Color("#e7f4ef"))
+	var inventory_subtitle := _label(inv_panel, "本次行动  ·  携带物品与装备", Vector2(26, 47), 11, Color("#7fa99d"))
 	var divider := ColorRect.new()
 	divider.position = Vector2(24, 70)
 	divider.size = Vector2(1104, 1)
@@ -278,27 +290,105 @@ func _build_ui() -> void:
 	inventory_close_button.add_theme_stylebox_override("hover", _button_style(Color("#3a2028"), Color("#d47b7b")))
 	inventory_close_button.pressed.connect(_close_inventory)
 	inv_panel.add_child(inventory_close_button)
-	_build_deployment_screen(layer)
-	item_context_panel = _panel(layer, Rect2(Vector2.ZERO, Vector2.ZERO))
+	_build_deployment_screen(ui_root)
+	item_context_panel = _panel(ui_root, Rect2(Vector2.ZERO, Vector2.ZERO))
 	item_context_panel.visible = false
 	item_context_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	item_context_list = VBoxContainer.new()
 	item_context_list.position = Vector2(6, 6)
 	item_context_list.add_theme_constant_override("separation", 3)
 	item_context_panel.add_child(item_context_list)
+	ui_root.resized.connect(_layout_ui)
+	get_window().size_changed.connect(_layout_ui)
+	_layout_ui()
 
 
-func _build_deployment_screen(layer: CanvasLayer) -> void:
+func _layout_ui() -> void:
+	if ui_root == null or survivor_panel == null or raid_panel == null:
+		return
+	var viewport_size := get_viewport_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return
+	var width := viewport_size.x
+	var height := viewport_size.y
+	var compact_layout := get_window().size.x < 1100
+	var margin := 18.0
+	var horizontal_scale := (width - margin * 3.0) / 672.0
+	var vertical_scale := (height - 282.0) / 286.0
+	var top_scale := clampf(minf(horizontal_scale, vertical_scale), 0.35, 1.0)
+	survivor_panel.scale = Vector2.ONE * top_scale
+	raid_panel.scale = Vector2.ONE * top_scale
+	survivor_panel.position = Vector2(margin, margin)
+	raid_panel.position = Vector2(width - margin - 332.0 * top_scale, margin)
+
+	if not compact_layout:
+		raid_panel.size.y = 194.0
+		status_label.scale = Vector2.ONE
+		interaction_label.scale = Vector2.ONE
+		status_label.position = Vector2(382.0, 28.0)
+		status_label.size = Vector2(maxf(250.0, raid_panel.position.x - 406.0), 54.0)
+		interaction_label.position = Vector2(382.0, 88.0)
+		interaction_label.size = Vector2(maxf(250.0, raid_panel.position.x - 406.0), 44.0)
+	else:
+		raid_panel.size.y = 286.0
+		status_label.scale = Vector2.ONE * top_scale
+		interaction_label.scale = Vector2.ONE * top_scale
+		status_label.position = raid_panel.position + Vector2(16.0, 198.0) * top_scale
+		status_label.size = Vector2(300.0, 38.0)
+		interaction_label.position = raid_panel.position + Vector2(16.0, 232.0) * top_scale
+		interaction_label.size = Vector2(300.0, 42.0)
+
+	var bottom_y := height - 168.0
+	if not compact_layout:
+		var column_width := (width - margin * 2.0 - 24.0) * 0.5
+		log_panel.position = Vector2(margin, bottom_y)
+		log_panel.size = Vector2(column_width, 112.0)
+		bottom_panel.position = Vector2(margin + column_width + 24.0, bottom_y)
+		bottom_panel.size = Vector2(column_width, 112.0)
+		log_label.size = Vector2(column_width - 28.0, 96.0)
+	else:
+		var full_width := width - margin * 2.0
+		log_panel.position = Vector2(margin, bottom_y - 96.0)
+		log_panel.size = Vector2(full_width, 84.0)
+		bottom_panel.position = Vector2(margin, bottom_y)
+		bottom_panel.size = Vector2(full_width, 112.0)
+		log_label.size = Vector2(full_width - 28.0, 68.0)
+
+	var button_gap := 8.0
+	var button_width := (bottom_panel.size.x - 32.0 - button_gap * 4.0) / 5.0
+	for index: int in action_buttons.size():
+		action_buttons[index].position = Vector2(16.0 + index * (button_width + button_gap), 42.0)
+		action_buttons[index].size = Vector2(button_width, 42.0)
+
+	hint_label.position = Vector2(margin, height - 38.0)
+	hint_label.size = Vector2(maxf(0.0, width - margin * 2.0), 18.0)
+	if compact_layout:
+		hint_label.text = "WASD 移动  鼠标寻路  I 背包  , 拾取  E 交互  . 等待  F5/F9 存读档"
+	else:
+		hint_label.text = "WASD/方向键/hjkl 走，yubn 斜走   ' / \" 跑步   i 背包   , 拾取   e 交互   . 等待   F5 存 F9 读 R 重开"
+	if attribution_label != null:
+		attribution_label.position = Vector2(maxf(margin, width - 340.0), height - 18.0)
+
+	if inv_panel != null:
+		var inventory_scale := clampf(minf((width - margin * 2.0) / 1152.0, (height - margin * 2.0) / 636.0), 0.3, 1.0)
+		inv_panel.scale = Vector2.ONE * inventory_scale
+		inv_panel.position = (viewport_size - Vector2(1152.0, 636.0) * inventory_scale) * 0.5
+	if deployment_panel != null:
+		var deployment_scale := clampf(minf((width - margin * 2.0) / 780.0, (height - margin * 2.0) / 556.0), 0.3, 1.0)
+		deployment_panel.scale = Vector2.ONE * deployment_scale
+		deployment_panel.position = (viewport_size - Vector2(780.0, 556.0) * deployment_scale) * 0.5
+
+
+func _build_deployment_screen(parent: Control) -> void:
 	deployment_overlay = ColorRect.new()
-	deployment_overlay.position = Vector2.ZERO
-	deployment_overlay.size = Vector2(1280, 720)
+	deployment_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	deployment_overlay.color = Color(0.01, 0.018, 0.026, 0.9)
 	deployment_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	deployment_overlay.visible = false
-	layer.add_child(deployment_overlay)
-	deployment_panel = _panel(layer, Rect2(250, 82, 780, 556))
+	parent.add_child(deployment_overlay)
+	deployment_panel = _panel(parent, Rect2(250, 82, 780, 556))
 	deployment_panel.visible = false
-	_label(deployment_panel, "SAFEHOUSE  /  整备", Vector2(28, 22), 20, Color("#e7f4ef"))
+	_label(deployment_panel, "安全屋  /  整备", Vector2(28, 22), 20, Color("#e7f4ef"))
 	_label(deployment_panel, "选择带入本局的仓库物资。未选中的物品留在基地。", Vector2(30, 58), 12, Color("#91aaa4"))
 	deployment_info = _label(deployment_panel, "", Vector2(30, 92), 12, Color("#eecb80"))
 	deployment_scroll = ScrollContainer.new()
@@ -310,7 +400,7 @@ func _build_deployment_screen(layer: CanvasLayer) -> void:
 	deployment_list.add_theme_constant_override("separation", 5)
 	deployment_scroll.add_child(deployment_list)
 	var deploy_button := _new_button()
-	deploy_button.text = "DEPLOY  /  出发"
+	deploy_button.text = "出发行动"
 	deploy_button.position = Vector2(548, 486)
 	deploy_button.size = Vector2(202, 46)
 	deploy_button.add_theme_font_size_override("font_size", 14)
@@ -460,7 +550,7 @@ func _deploy_raid() -> void:
 
 func _build_equipment_panel(parent: Panel) -> void:
 	equipment_panel = _panel(parent, Rect2(560, 86, 568, 546))
-	_label(equipment_panel, "EQUIPMENT  /  装备", Vector2(20, 18), 15, Color("#e7f4ef"))
+	_label(equipment_panel, "装备状态", Vector2(20, 18), 15, Color("#e7f4ef"))
 	_label(equipment_panel, "拖拽物品到槽位换装，右键打开动作菜单", Vector2(20, 46), 11, Color("#7d9188"))
 	var figure := _label(equipment_panel, "             O\n           / | \\\n             |\n            / \\", Vector2(220, 94), 29, Color("#7fa99d"))
 	figure.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -668,21 +758,22 @@ func _set_bar(name: String, value: int, maximum: int, color: Color) -> void:
 
 func _refresh_ui() -> void:
 	var p := world.player
-	labels["hp"].text = "HP %d / %d" % [p.hp, p.hp_max]
+	labels["hp"].text = "生命 %d / %d" % [p.hp, p.hp_max]
 	var hp_ratio := float(p.hp) / float(maxi(1, p.hp_max))
 	_set_bar("hp", p.hp, p.hp_max, Color("#c0504d").lerp(Color("#8fbf6a"), hp_ratio))
 
 	var infection_text := "   感染 %d" % p.infection if p.infection > 0 else ""
-	labels["needs"].text = "饥饿 %d   口渴 %d%s" % [p.hunger, p.thirst, infection_text]
+	labels["needs"].text = "饱腹 %d   水分 %d%s" % [p.hunger, p.thirst, infection_text]
 	_set_bar("hunger", p.hunger, 100, Color("#8a2f2a").lerp(Color("#c9a15a"), p.hunger / 100.0))
 	_set_bar("thirst", p.thirst, 100, Color("#8a2f2a").lerp(Color("#5a9fc9"), p.thirst / 100.0))
 	_set_bar("stamina", p.stamina, p.max_stamina, Color("#8a2f2a").lerp(Color("#d69b5a"), float(p.stamina) / float(maxi(1, p.max_stamina))))
 
+	labels["stamina"].text = "体力 %d / %d" % [p.stamina, p.max_stamina]
 	var mode := "跑步" if p.run_mode else "走路"
-	labels["ap"].text = "moves %d  %s  速度 %d" % [p.moves, mode, p.effective_speed(world.item_db)]
+	labels["ap"].text = "行动点 %d   %s · 速度 %d" % [p.moves, mode, p.effective_speed(world.item_db)]
 	labels["turn"].text = "回合 %d   %s" % [world.turn, _pack_summary()]
-	var raid_state := "EXTRACTED" if world.extracted else ("FAILED" if world.raid_failed or world.dead else "IN RAID")
-	raid_label.text = "%s  /  仓库 %d 件" % [raid_state, profile_stash.size()]
+	var raid_state := "已撤离" if world.extracted else ("行动失败" if world.raid_failed or world.dead else "行动中")
+	raid_label.text = "%s  ·  仓库 %d 件" % [raid_state, profile_stash.size()]
 	threat_label.text = _threat_summary()
 	var wielded_name := "空手" if p.wielded == null else world.item_name(p.wielded.type_id)
 	var offhand_name := "空" if p.offhand == null else world.item_name(p.offhand.type_id)
@@ -695,6 +786,12 @@ func _refresh_ui() -> void:
 	log_label.text = "\n".join(lines)
 	status_label.text = _status_text()
 	interaction_label.text = _interaction_text()
+	var primary_interaction := _primary_interaction()
+	if action_buttons.size() > 1:
+		var examine_button := action_buttons[1]
+		examine_button.text = String(primary_interaction.get("button", "E 检查"))
+		examine_button.tooltip_text = String(primary_interaction.get("hint", ""))
+		examine_button.disabled = world.dead or world.raid_failed or world.extracted
 	_refresh_equipment_panel()
 	inv_panel.visible = inventory_open
 	if inventory_overlay != null:
@@ -720,10 +817,10 @@ func _status_text() -> String:
 		return "行动失败。携带物资遗失。按 R 再次出发。"
 	var near := 0
 	for actor: Actor in world.actors:
-		if actor != world.player and actor.alive and world.visible.has(actor.pos):
+		if actor != world.player and actor.alive and world.visible.has(actor.cell_pos):
 			near += 1
 	var threat := "   视野内：%d 只" % near if near > 0 else ""
-	if world.player.pos == world.extract_site:
+	if world.player.cell_pos == world.extract_site:
 		return "撤离点已到达。按 E 开始撤离。%s" % threat
 	return "目标：搜索物资，到西侧撤离点。剩余 %d 回合。%s" % [world.raid_turns_left, threat]
 
@@ -731,40 +828,48 @@ func _status_text() -> String:
 func _threat_summary() -> String:
 	var near := 0
 	for actor: Actor in world.actors:
-		if actor != world.player and actor.alive and world.visible.has(actor.pos):
+		if actor != world.player and actor.alive and world.visible.has(actor.cell_pos):
 			near += 1
 	if near == 0:
-		return "威胁 LOW   ·   视野 0"
+		return "威胁 低   ·   视野内 0"
 	if near == 1:
-		return "威胁 MEDIUM   ·   视野 1"
-	return "威胁 HIGH   ·   视野 %d" % near
+		return "威胁 中   ·   视野内 1"
+	return "威胁 高   ·   视野内 %d" % near
+
+
+func _primary_interaction() -> Dictionary:
+	if world.dead or world.raid_failed or world.extracted:
+		return {"button": "行动结束", "hint": "按 R 再次出发"}
+	var cell := world.player.cell_pos
+	if cell == world.extract_site:
+		return {"button": "E 撤离", "hint": "已到达撤离点，按 E 开始撤离"}
+	var container := world.container_at(cell)
+	if not container.is_empty():
+		var container_name := String(container.get("name", "容器"))
+		return {"button": "E 搜索", "hint": "%s就在脚下，按 E 搜索" % container_name}
+	if cell == world.repair_site:
+		return {"button": "E 修理", "hint": "已到达电台塔，按 E 检查维修条件"}
+	for delta: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		var adjacent_container := world.container_at(cell + delta)
+		if not adjacent_container.is_empty():
+			var adjacent_name := String(adjacent_container.get("name", "容器"))
+			return {"button": "E 搜索", "hint": "附近有%s，按 E 搜索" % adjacent_name}
+		if world.is_closed_door(cell + delta):
+			return {"button": "E 开门", "hint": "附近有关闭的门，按 E 推开"}
+	return {"button": "E 检查", "hint": "附近没有可交互目标"}
 
 
 func _interaction_text() -> String:
-	var messages: Array[String] = []
-	var ground := world.items_at(world.player.pos)
+	var primary := _primary_interaction()
+	var messages: Array[String] = [String(primary.get("hint", ""))]
+	var ground := world.items_at(world.player.cell_pos)
 	if not ground.is_empty():
 		messages.append("脚下有 %d 件物品，按 , 拾取" % ground.size())
-	var container := world.container_at(world.player.pos)
-	if not container.is_empty():
-		messages.append("%s：按 E 搜索" % String(container.get("name", "容器")))
-	if world.player.pos == world.extract_site:
-		messages.append("撤离点已到达，按 E 开始撤离")
 	for delta: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
-		var cell := world.player.pos + delta
-		var adjacent_container := world.container_at(cell)
-		if not adjacent_container.is_empty():
-			messages.append("附近有%s，按 E 搜索" % String(adjacent_container.get("name", "容器")))
-			break
-	for delta: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
-		var cell := world.player.pos + delta
+		var cell := world.player.cell_pos + delta
 		var target := world.actor_at(cell)
-		if target != null and target != world.player:
+		if target != null and target != world.player and world.visible.has(target.cell_pos):
 			messages.append("附近有%s，点击目标或撞上去攻击" % target.name)
-		elif world.is_closed_door(cell):
-			messages.append("附近有一扇关闭的门，按 E 或点击门互动")
-	if messages.is_empty():
-		return "附近没有可交互目标"
 	return "\n".join(messages.slice(0, 2))
 
 
@@ -835,7 +940,7 @@ func _rebuild_inventory_panel() -> void:
 	var p := world.player
 	if item_action_open and item_action_item != null:
 		inventory_list.columns = 1
-		inv_label.text = "ACTION  /  %s\n选择一个动作，Esc 返回物品列表" % world.item_name(item_action_item.type_id)
+		inv_label.text = "物品动作  /  %s\n选择一个动作，Esc 返回物品列表" % world.item_name(item_action_item.type_id)
 		for i: int in item_action_options.size():
 			var option: Dictionary = item_action_options[i]
 			var button := _inventory_button("%s   %s" % [char("A".unicode_at(0) + i), option["label"]])
@@ -844,7 +949,7 @@ func _rebuild_inventory_panel() -> void:
 			inventory_list.add_child(button)
 		return
 	inventory_list.columns = 2
-	inv_label.text = "INVENTORY  /  %d ITEMS\n负重 %.1f / %.1f kg   空间 %.1f / %.1f L\n左键选择 · 右键动作 · 拖到装备位" % [
+	inv_label.text = "物品栏  /  %d 件\n负重 %.1f / %.1f kg   空间 %.1f / %.1f L\n左键选择 · 右键动作 · 拖到装备位" % [
 		p.inventory.size(), p.total_weight(world.item_db), p.max_weight,
 		float(p.total_volume(world.item_db)) / 1000.0, float(p.max_volume(world.item_db)) / 1000.0,
 	]
@@ -1084,7 +1189,7 @@ func _process(delta: float) -> void:
 	# 一格一格的位置用指数平滑抹成滑动，别让它跳。
 	var k: float = 1.0 - exp(-delta * MOVE_SMOOTH)
 	for actor: Actor in world.actors:
-		var target := _iso(actor.pos)
+		var target := _iso(actor.free_pos)
 		var current: Vector2 = _visual.get(actor.id, target)
 		_visual[actor.id] = current.lerp(target, k)
 	var view := get_viewport_rect().size / camera.zoom
@@ -1103,7 +1208,7 @@ func _process(delta: float) -> void:
 
 
 ## 第 (x,y) 格的菱形顶点在屏幕上的位置（2:1 等距）。
-func _iso(cell: Vector2i) -> Vector2:
+func _iso(cell: Vector2) -> Vector2:
 	return Vector2((cell.x - cell.y) * ISO_W / 2.0, (cell.x + cell.y) * ISO_H / 2.0)
 
 
@@ -1116,7 +1221,7 @@ func _map_bounds() -> Rect2:
 
 
 func _actor_world_pos(actor: Actor) -> Vector2:
-	return _visual.get(actor.id, _iso(actor.pos))
+	return _visual.get(actor.id, _iso(actor.free_pos))
 
 
 func _actor_center(actor: Actor) -> Vector2:
@@ -1166,6 +1271,81 @@ func _draw() -> void:
 		var hover := _diamond(_iso(hover_cell))
 		hover.append(hover[0])
 		draw_polyline(hover, Color(0.45, 0.78, 0.7, 0.72), 2.0)
+	_draw_move_preview()
+
+
+func _draw_move_preview() -> void:
+	if inventory_open:
+		return
+	var destination_cell := mouse_destination
+	var destination_position := mouse_destination_position
+	if destination_cell.x < 0:
+		destination_cell = hover_cell
+		if not world.in_bounds(destination_cell) or not world.visible.has(destination_cell):
+			return
+		destination_position = Vector2(destination_cell)
+	var path := world.find_path(world.player.pos, destination_cell, world.player)
+	if path.is_empty():
+		return
+	var ground_offset := Vector2(0, ISO_H / 2.0)
+	var route := PackedVector2Array([world.player.free_pos])
+	for index: int in range(1, path.size()):
+		route.append(Vector2(path[index]))
+	if route[route.size() - 1].distance_to(destination_position) > 0.01:
+		route.append(destination_position)
+	var points := PackedVector2Array()
+	for position: Vector2 in route:
+		points.append(_iso(position) + ground_offset)
+	if points.size() > 1:
+		draw_polyline(points, Color(0.55, 0.86, 0.76, 0.78), 3.0, true)
+	var moves_per_tile := 50.0 if world.player.run_mode else 100.0
+	if _route_cost(route, moves_per_tile) > float(world.player.moves):
+		var stop_position := _position_after_movement(route, world.player.moves, moves_per_tile)
+		var stop_screen := _iso(stop_position) + ground_offset
+		draw_arc(stop_screen, 9.0, 0.0, TAU, 24, Color(0.95, 0.79, 0.45, 0.95), 2.0, true)
+	var destination_screen := _iso(destination_position) + ground_offset
+	draw_circle(destination_screen, 4.0, Color(0.72, 0.95, 0.81, 0.92))
+
+
+func _position_after_movement(route: PackedVector2Array, moves: int, moves_per_tile: float) -> Vector2:
+	var moves_left := maxf(0.0, float(moves))
+	for index: int in range(1, route.size()):
+		var start := route[index - 1]
+		var finish := route[index]
+		var finish_cell := world.cell_at(finish)
+		if world.is_closed_door(finish_cell):
+			var start_cell := world.cell_at(start)
+			var door_entry := Vector2(start_cell).lerp(Vector2(finish_cell), 0.5)
+			var approach_cost := start.distance_to(door_entry) * moves_per_tile
+			if approach_cost > moves_left:
+				return start.lerp(door_entry, moves_left / approach_cost)
+			moves_left -= approach_cost
+			start = door_entry
+			if moves_left > 0.0:
+				var door_cost := 50.0 if moves_per_tile == 50.0 else 100.0
+				moves_left = maxf(0.0, moves_left - door_cost)
+			if moves_left <= 0.0:
+				return door_entry
+		var segment_cost := start.distance_to(finish) * moves_per_tile
+		if segment_cost > moves_left:
+			return start.lerp(finish, moves_left / segment_cost)
+		moves_left -= segment_cost
+	return route[route.size() - 1]
+
+
+func _route_length(route: PackedVector2Array) -> float:
+	var total := 0.0
+	for index: int in range(1, route.size()):
+		total += route[index - 1].distance_to(route[index])
+	return total
+
+
+func _route_cost(route: PackedVector2Array, moves_per_tile: float) -> float:
+	var total := _route_length(route) * moves_per_tile
+	for index: int in range(1, route.size()):
+		if world.is_closed_door(world.cell_at(route[index])):
+			total += 50.0 if moves_per_tile == 50.0 else 100.0
+	return total
 
 
 ## 一格里立起来/摆在平面上的东西：墙、关着的门、地面物品、角色。
@@ -1183,7 +1363,7 @@ func _draw_cell_objects(cell: Vector2i) -> void:
 		if not world.container_at(cell).is_empty():
 			_draw_container(cell)
 	for actor: Actor in world.actors:
-		if actor.pos != cell or not actor.alive:
+		if actor.cell_pos != cell or not actor.alive:
 			continue
 		if actor != world.player and not visible:
 			continue
@@ -1326,21 +1506,21 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	match key:
 		KEY_W, KEY_UP, KEY_K, KEY_KP_8:
-			world.player_step(0, -1)
+			_move_player_free(Vector2.UP)
 		KEY_S, KEY_DOWN, KEY_J, KEY_KP_2:
-			world.player_step(0, 1)
+			_move_player_free(Vector2.DOWN)
 		KEY_A, KEY_LEFT, KEY_H, KEY_KP_4:
-			world.player_step(-1, 0)
+			_move_player_free(Vector2.LEFT)
 		KEY_D, KEY_RIGHT, KEY_L, KEY_KP_6:
-			world.player_step(1, 0)
+			_move_player_free(Vector2.RIGHT)
 		KEY_Y, KEY_KP_7:
-			world.player_step(-1, -1)
+			_move_player_free(Vector2(-1, -1))
 		KEY_U, KEY_KP_9:
-			world.player_step(1, -1)
+			_move_player_free(Vector2(1, -1))
 		KEY_B, KEY_KP_1:
-			world.player_step(-1, 1)
+			_move_player_free(Vector2(-1, 1))
 		KEY_N, KEY_KP_3:
-			world.player_step(1, 1)
+			_move_player_free(Vector2(1, 1))
 		KEY_I:
 			inventory_open = true
 		KEY_COMMA:
@@ -1375,6 +1555,7 @@ func _handle_map_click(event: InputEventMouseButton) -> void:
 	if inventory_open:
 		return
 	var cell := _cell_from_mouse()
+	var destination_position := _position_from_mouse()
 	if not world.in_bounds(cell):
 		return
 	if event.button_index == MOUSE_BUTTON_RIGHT:
@@ -1394,11 +1575,13 @@ func _handle_map_click(event: InputEventMouseButton) -> void:
 	var container := world.container_at(cell)
 	if not container.is_empty():
 		mouse_destination = cell
+		mouse_destination_position = Vector2(cell)
 		mouse_search_container = true
 		mouse_move_timer = 0.0
 		return
 	if cell == world.extract_site:
 		mouse_destination = cell
+		mouse_destination_position = Vector2(cell)
 		mouse_search_container = false
 		mouse_move_timer = 0.0
 		return
@@ -1413,20 +1596,22 @@ func _handle_map_click(event: InputEventMouseButton) -> void:
 		if world.player_loot():
 			_after_action()
 		return
-	var distance := cell - world.player.pos
-	if absi(distance.x) <= 1 and absi(distance.y) <= 1:
-		mouse_destination = Vector2i(-999, -999)
-		if world.player_step(signi(distance.x), signi(distance.y)):
-			_after_action()
-		return
 	mouse_destination = cell
+	mouse_destination_position = destination_position
 	mouse_move_timer = 0.0
+
+
+func _move_player_free(direction: Vector2) -> void:
+	mouse_destination = Vector2i(-999, -999)
+	mouse_search_container = false
+	if world.player_move_direction(direction, 0.2):
+		_after_action()
 
 
 func _continue_mouse_move() -> void:
 	if mouse_destination == Vector2i(-999, -999):
 		return
-	if world.player.pos == mouse_destination:
+	if world.player.free_pos.distance_to(mouse_destination_position) <= 0.03:
 		if mouse_search_container:
 			var container := world.container_at(mouse_destination)
 			mouse_search_container = false
@@ -1437,13 +1622,18 @@ func _continue_mouse_move() -> void:
 		mouse_destination = Vector2i(-999, -999)
 		return
 	var next_step := _next_path_step(world.player.pos, mouse_destination)
-	if next_step == Vector2i.ZERO:
+	if next_step == Vector2i.ZERO and world.player.pos != mouse_destination:
 		mouse_destination = Vector2i(-999, -999)
 		mouse_search_container = false
 		return
-	var dx := next_step.x
-	var dy := next_step.y
-	if not world.player_step(dx, dy):
+	var target_position := mouse_destination_position
+	if next_step != Vector2i.ZERO:
+		target_position = Vector2(world.player.pos + next_step)
+	var toward: Vector2 = target_position - world.player.free_pos
+	var step_distance := minf(0.2, toward.length())
+	if step_distance <= 0.02:
+		return
+	if not world.player_move_direction(toward, step_distance):
 		mouse_destination = Vector2i(-999, -999)
 		mouse_search_container = false
 		return
@@ -1451,48 +1641,22 @@ func _continue_mouse_move() -> void:
 
 
 func _next_path_step(from: Vector2i, to: Vector2i) -> Vector2i:
-	if from == to:
+	var path := world.find_path(from, to, world.player)
+	if path.size() < 2:
 		return Vector2i.ZERO
-	var directions: Array[Vector2i] = [
-		Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
-		Vector2i(-1, 0), Vector2i(1, 0),
-		Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1),
-	]
-	var queue: Array[Vector2i] = [from]
-	var parent: Dictionary = {from: from}
-	var cursor := 0
-	while cursor < queue.size():
-		var current: Vector2i = queue[cursor]
-		cursor += 1
-		if current == to:
-			break
-		for step: Vector2i in directions:
-			var next := current + step
-			if parent.has(next) or world.is_wall(next):
-				continue
-			if step.x != 0 and step.y != 0:
-				var side_a := current + Vector2i(step.x, 0)
-				var side_b := current + Vector2i(0, step.y)
-				if world.is_blocked(side_a) and world.is_blocked(side_b):
-					continue
-			var occupant := world.actor_at(next)
-			if occupant != null and occupant != world.player and next != to:
-				continue
-			parent[next] = current
-			queue.append(next)
-	if not parent.has(to):
-		return Vector2i.ZERO
-	var path_cell := to
-	while parent[path_cell] != from:
-		path_cell = parent[path_cell]
-	return path_cell - from
+	return path[1] - path[0]
 
 
 func _cell_from_mouse() -> Vector2i:
+	var point := _position_from_mouse()
+	return Vector2i(roundi(point.x), roundi(point.y))
+
+
+func _position_from_mouse() -> Vector2:
 	var point := get_global_mouse_position()
 	var axial_x := point.x / (ISO_W / 2.0)
 	var axial_y := point.y / (ISO_H / 2.0)
-	return Vector2i(roundi((axial_x + axial_y) * 0.5), roundi((axial_y - axial_x) * 0.5))
+	return Vector2((axial_x + axial_y) * 0.5, (axial_y - axial_x) * 0.5)
 
 
 func _is_move_key(key: int) -> bool:
@@ -1618,6 +1782,8 @@ func _load() -> void:
 		world.log_message("存档版本不认，按 R 重开。")
 		return
 	_visual.clear()
+	mouse_destination = Vector2i(-999, -999)
+	mouse_search_container = false
 	profile_stash = world.stash.duplicate()
 	_save_profile()
 	world.log_message("已读档。")

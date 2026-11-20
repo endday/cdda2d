@@ -83,6 +83,86 @@ class Loot extends Action:
 		return true
 
 
+## Move in continuous coordinates. Terrain collision uses map cells, and cost scales with distance.
+class FreeMove extends Action:
+	const WALK_COST_PER_TILE := 100
+	const RUN_COST_PER_TILE := 50
+	const INVALID_CELL := Vector2i(-1, -1)
+
+	var direction := Vector2.ZERO
+	var distance := 0.0
+	var door_to_open := INVALID_CELL
+
+	func _init(move_direction: Vector2, move_distance: float) -> void:
+		id = "move"
+		label = "移动"
+		direction = move_direction.normalized()
+		distance = maxf(0.0, move_distance)
+
+	func can(actor: Variant, world: Variant) -> String:
+		door_to_open = INVALID_CELL
+		if direction.is_zero_approx() or distance <= 0.0:
+			return "前面是墙。"
+		if actor.run_mode and actor.stamina < Actor.MIN_RUN_STAMINA:
+			return "你喘得太厉害，暂时跑不动。"
+		var start: Vector2 = actor.free_pos
+		var finish := start + direction * distance
+		var previous_cell: Vector2i = world.cell_at(start)
+		var samples := maxi(1, ceili(distance / 0.05))
+		for index: int in range(1, samples + 1):
+			var sample := start.lerp(finish, float(index) / samples)
+			var cell: Vector2i = world.cell_at(sample)
+			if cell == previous_cell:
+				continue
+			if world.is_wall(cell):
+				return "前面是墙。"
+			if world.is_closed_door(cell):
+				if not actor.can_open_doors:
+					return "门关着。"
+				door_to_open = cell
+				return ""
+			var step := cell - previous_cell
+			if absi(step.x) > 1 or absi(step.y) > 1:
+				return "前面是墙。"
+			if step.x != 0 and step.y != 0:
+				var side_a := previous_cell + Vector2i(step.x, 0)
+				var side_b := previous_cell + Vector2i(0, step.y)
+				if world.is_blocked(side_a) and world.is_blocked(side_b):
+					return "拐角过不去。"
+			var occupant: Actor = world.actor_at(cell)
+			if occupant != null and occupant != actor:
+				return "前面是墙。"
+			previous_cell = cell
+		if world.actor_near(finish, 0.4, actor) != null:
+			return "前面是墙。"
+		return ""
+
+	func cost_for(actor: Variant) -> int:
+		if door_to_open != INVALID_CELL:
+			return RUN_COST_PER_TILE if actor.run_mode else WALK_COST_PER_TILE
+		var rate := RUN_COST_PER_TILE if actor.run_mode else WALK_COST_PER_TILE
+		return maxi(1, int(round(distance * rate)))
+
+	func _stamina_cost(actor: Variant, world: Variant) -> int:
+		var stamina_per_tile := 5.0 if actor.run_mode else 1.0
+		var distance_to_pay := 1.0 if door_to_open != INVALID_CELL else distance
+		var raw_amount: float = distance_to_pay * stamina_per_tile + actor.stamina_move_remainder
+		var amount := floori(raw_amount)
+		actor.stamina_move_remainder = raw_amount - amount
+		if actor.total_weight(world.item_db) > actor.max_weight:
+			amount = int(ceil(float(amount) * 1.5))
+		return amount
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		actor.burn_stamina(_stamina_cost(actor, world))
+		if door_to_open != INVALID_CELL:
+			world.open_door(door_to_open)
+			world.log_message("%s推开门。" % ("你" if actor.is_player else ""))
+			return true
+		actor.free_pos += direction * distance
+		return true
+
+
 class SearchContainer extends Action:
 	var container: Dictionary
 
@@ -357,7 +437,7 @@ class Attack extends Action:
 	func can(actor: Variant, _world: Variant) -> String:
 		if target == null or not target.alive:
 			return "那里没有活物。"
-		if _distance(actor.pos, target.pos) > 1:
+		if _distance(actor.cell_pos, target.cell_pos) > 1:
 			return "太远了，得先靠近。"
 		return ""
 

@@ -49,11 +49,11 @@ tools/           build_all.py（Web/Windows/Linux）+ serve_web.py
 ## 当前灰盒做了什么
 
 - 地图：48×32，主街（路面）+ 三栋建筑 + 电台塔；FOV 半径 8，`seen`/`visible` 两套。
-- 时间：CDDA 那套，每个 Actor 每回合 `moves += speed`；走 100、斜走 141、搜 50、用 50、等 100。
+- 时间：CDDA 那套，每个 Actor 每回合 `moves += speed`；移动按距离计费（步行 100 moves/地图单位，跑步 50），搜 50、用 50、等 100。
   **只要 moves > 0 就能做一次动作**（代价可以扣成负数，下回合补回来，CDDA 就是这样）；
   玩家动到 `moves <= 0` 世界推进一回合。空格是「等」。
-- 动作：`World.perform(actor, action)`；走/斜走/搜/用/等/打，玩家和 AI 共用一条路径。
-  8 向移动，斜走不能切墙角（两个正交邻格都堵就不许穿）。
+- 移动：玩家坐标可以停在地图单元之间，地形碰撞仍按地图单元处理；方向键自由移动，鼠标点地后由 A* 绕障并显示本回合预计停点。
+- 动作：`World.perform(actor, action)`；移动/搜/用/等/打，玩家和 AI 共用动作结算路径。
 - 物品：**原型 + 实例 + 动词注册表**（照 CDDA 的 itype/item/use_methods）。
   `items.json` 只写数据；`ItemUse.register()` 加新玩法；World/UI/存档都不用改。
   加物品 = 加一条 JSON，`ContentDB` 会校验每个 `use_methods.type` 都注册过。
@@ -96,13 +96,13 @@ macOS/Android/iOS 要各自 SDK/签名（iOS/macOS 还要 Mac），后面再加�
 
 ## 下一步（按顺序）
 
-详细任务表在 [`docs/roadmap.md`](docs/roadmap.md)：T1 8 向移动 → T3 装备位 → T5 物品动作菜单
+详细任务表在 [`docs/roadmap.md`](docs/roadmap.md)：T1 连续移动 → T3 装备位 → T5 物品动作菜单
 → T2 体力 → T4 体积重量。
 
 1. ~~敌人 + 战斗 + AI~~：已接。
 2. ~~电台目标~~：已接。
 3. ~~物品引擎（原型/实例/动词注册表）+ 背包 UI + 等距渲染~~：已接。
-4. ~~T1 8 向移动~~：已接（斜走 141、不能切角、怪也斜追、moves 允许欠账）。
+4. ~~T1 连续移动~~：已接（按距离结算行动点，地图单元只用于地形和寻路）。
 5. **T3 装备位**：wielded / worn，伤害和护甲不再取"身上最好的东西"。
 
 ## 不做（第一版）

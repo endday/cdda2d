@@ -15,7 +15,15 @@ const BASE_CAPACITY_VOLUME := 6000
 
 var id: String = ""
 var name: String = ""
-var pos := Vector2i.ZERO
+var free_pos := Vector2.ZERO # Continuous map coordinate used for player movement.
+var pos: Vector2i:
+	get:
+		return Vector2i(roundi(free_pos.x), roundi(free_pos.y))
+	set(value):
+		free_pos = Vector2(value)
+var cell_pos: Vector2i:
+	get:
+		return pos
 var hp := 100
 var hp_max := 100
 var moves := 0
@@ -25,6 +33,7 @@ var thirst := 100
 var infection := 0
 var stamina := MAX_STAMINA
 var max_stamina := MAX_STAMINA
+var stamina_move_remainder := 0.0
 var run_mode := false
 var stamina_used_this_turn := false
 var max_weight: float = BASE_MAX_WEIGHT
@@ -279,6 +288,7 @@ func to_dict() -> Dictionary:
 		"id": id,
 		"name": name,
 		"pos": [pos.x, pos.y],
+		"free_pos": [free_pos.x, free_pos.y],
 		"hp": hp,
 		"hp_max": hp_max,
 		"moves": moves,
@@ -288,6 +298,7 @@ func to_dict() -> Dictionary:
 		"infection": infection,
 		"stamina": stamina,
 		"max_stamina": max_stamina,
+		"stamina_move_remainder": stamina_move_remainder,
 		"run_mode": run_mode,
 		"max_weight": max_weight,
 		"capacity_volume": capacity_volume,
@@ -324,6 +335,8 @@ func from_dict(data: Dictionary) -> void:
 	name = String(data.get("name", id))
 	var p: Array = data.get("pos", [0, 0])
 	pos = Vector2i(int(p[0]), int(p[1]))
+	var free: Array = data.get("free_pos", p)
+	free_pos = Vector2(float(free[0]), float(free[1]))
 	hp = int(data.get("hp", 100))
 	hp_max = int(data.get("hp_max", 100))
 	moves = int(data.get("moves", 0))
@@ -333,6 +346,7 @@ func from_dict(data: Dictionary) -> void:
 	infection = int(data.get("infection", 0))
 	max_stamina = int(data.get("max_stamina", MAX_STAMINA))
 	stamina = clampi(int(data.get("stamina", max_stamina)), 0, max_stamina)
+	stamina_move_remainder = clampf(float(data.get("stamina_move_remainder", 0.0)), 0.0, 1.0)
 	run_mode = bool(data.get("run_mode", false))
 	max_weight = float(data.get("max_weight", BASE_MAX_WEIGHT))
 	capacity_volume = maxi(BASE_CAPACITY_VOLUME, int(data.get("capacity_volume", BASE_CAPACITY_VOLUME)))

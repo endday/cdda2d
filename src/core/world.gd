@@ -15,7 +15,7 @@ const W := 48
 const H := 32
 const FOV_RADIUS := 8
 const MONSTER_COST := 100     # 怪物一步/一爪的参考价格（实际按动作自己算）
-const SAVE_VERSION := 7
+const SAVE_VERSION := 8
 
 ## 电台目标：站到塔上、带齐三件东西、修 5 回合、然后守 10 回合。
 const REPAIR_TURNS := 5
@@ -174,6 +174,81 @@ func is_blocked(cell: Vector2i) -> bool:
 	return is_wall(cell) or is_closed_door(cell)
 
 
+func cell_at(position: Vector2) -> Vector2i:
+	return Vector2i(roundi(position.x), roundi(position.y))
+
+
+## A* routes over navigation cells while actors may stop between cell centers.
+func find_path(start: Vector2i, goal: Vector2i, mover: Actor = null) -> Array[Vector2i]:
+	var path: Array[Vector2i] = []
+	if not in_bounds(start) or not in_bounds(goal) or is_wall(goal):
+		return path
+	if is_closed_door(goal) and (mover == null or not mover.can_open_doors):
+		return path
+	if start == goal:
+		path.append(start)
+		return path
+	var directions: Array[Vector2i] = [
+		Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
+		Vector2i(-1, 0), Vector2i(1, 0),
+		Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1),
+	]
+	var open: Array[Vector2i] = [start]
+	var came_from: Dictionary = {}
+	var cost_so_far: Dictionary = {start: 0}
+	var estimated_total: Dictionary = {start: _path_heuristic(start, goal)}
+	var closed: Dictionary = {}
+	while not open.is_empty():
+		var best_index := 0
+		for index: int in range(1, open.size()):
+			if int(estimated_total[open[index]]) < int(estimated_total[open[best_index]]):
+				best_index = index
+		var current: Vector2i = open.pop_at(best_index)
+		if current == goal:
+			break
+		closed[current] = true
+		for step: Vector2i in directions:
+			var next := current + step
+			if not in_bounds(next) or is_wall(next) or closed.has(next):
+				continue
+			if is_closed_door(next) and (mover == null or not mover.can_open_doors):
+				continue
+			if step.x != 0 and step.y != 0:
+				var side_a := current + Vector2i(step.x, 0)
+				var side_b := current + Vector2i(0, step.y)
+				if is_blocked(side_a) and is_blocked(side_b):
+					continue
+			var occupant := actor_at(next)
+			if occupant != null and occupant != mover:
+				continue
+			var step_cost := 141 if step.x != 0 and step.y != 0 else 100
+			if is_closed_door(next):
+				step_cost += 50 if mover != null and mover.run_mode else 100
+			var next_cost: int = int(cost_so_far[current]) + step_cost
+			if cost_so_far.has(next) and next_cost >= int(cost_so_far[next]):
+				continue
+			came_from[next] = current
+			cost_so_far[next] = next_cost
+			estimated_total[next] = next_cost + _path_heuristic(next, goal)
+			if not open.has(next):
+				open.append(next)
+	if not came_from.has(goal):
+		return path
+	var cursor := goal
+	while cursor != start:
+		path.push_front(cursor)
+		cursor = came_from[cursor]
+	path.push_front(start)
+	return path
+
+
+func _path_heuristic(from: Vector2i, to: Vector2i) -> int:
+	var dx := absi(to.x - from.x)
+	var dy := absi(to.y - from.y)
+	var diagonal := mini(dx, dy)
+	return diagonal * 141 + (maxi(dx, dy) - diagonal) * 100
+
+
 ## 这一格画什么。纯展示用途，规则不依赖它。
 ## 贴着可走地面的墙画砖墙，墙心画岩壁——不然整张图会是同一种墙。
 func terrain_name(cell: Vector2i) -> String:
@@ -302,6 +377,15 @@ func actor_at(cell: Vector2i) -> Actor:
 	return null
 
 
+func actor_near(position: Vector2, radius: float = 0.4, ignore: Actor = null) -> Actor:
+	for actor: Actor in actors:
+		if actor == ignore or not actor.alive:
+			continue
+		if actor.free_pos.distance_to(position) <= radius:
+			return actor
+	return null
+
+
 func items_at(cell: Vector2i) -> Array[Dictionary]:
 	var found: Array[Dictionary] = []
 	for item: Dictionary in items:
@@ -386,6 +470,16 @@ func player_move(dx: int, dy: int) -> bool:
 	return perform(player, Actions.Walk.new(dx, dy))
 
 
+func player_move_direction(direction: Vector2, distance: float = 0.25) -> bool:
+	if direction.is_zero_approx():
+		return false
+	var step := Vector2i(signi(int(round(direction.x))), signi(int(round(direction.y))))
+	var target := actor_at(player.cell_pos + step)
+	if target != null and target != player and distance <= 0.35:
+		return perform(player, Actions.Attack.new(target))
+	return perform(player, Actions.FreeMove.new(direction, distance))
+
+
 ## 撞过去：那格有活物就打，没东西就走（CDDA 的 bump attack）。
 func player_step(dx: int, dy: int) -> bool:
 	var target := actor_at(player.pos + Vector2i(dx, dy))
@@ -465,18 +559,19 @@ func player_wait() -> bool:
 
 ## 交互（CDDA 的 examine，默认 e 键）：站在塔上就是修电台，旁边有门就推开。
 func player_examine() -> bool:
-	if player.pos == extract_site:
+	var cell := player.pos
+	if cell == extract_site:
 		return player_extract()
-	var container := container_at(player.pos)
+	var container := container_at(cell)
 	if not container.is_empty():
 		return player_search_container(container)
-	if player.pos == repair_site:
+	if cell == repair_site:
 		return player_repair()
 	for delta: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
-		var adjacent_container := container_at(player.pos + delta)
+		var adjacent_container := container_at(cell + delta)
 		if not adjacent_container.is_empty():
 			return player_search_container(adjacent_container)
-		if is_closed_door(player.pos + delta):
+		if is_closed_door(cell + delta):
 			return perform(player, Actions.Walk.new(delta.x, delta.y))
 	_push_log("这里没什么可看的。")
 	return false
@@ -514,7 +609,7 @@ func _record_death() -> void:
 	var lost_items: Array[String] = []
 	for item: Item in player.inventory:
 		lost_items.append(item.type_id)
-	death_summary = {"turn": turn, "loot": lost_items, "position": player.pos}
+	death_summary = {"turn": turn, "loot": lost_items, "position": [player.free_pos.x, player.free_pos.y]}
 	run_loot.clear()
 	player.inventory.clear()
 	player.worn.clear()

@@ -40,9 +40,9 @@ The presets are in `export_presets.cfg`: `Web`, `Windows`, `Linux`.
 
 | Key | Action |
 |---|---|
-| WASD / arrows / hjkl | 走一格（100 moves）；按住连续走 |
-| y u b n / 小键盘 1 3 7 9 | 斜走（141 moves，不能切墙角） |
-| ' 或 " | 切换跑步模式（每格 50 moves，消耗更多体力） |
+| WASD / arrows / hjkl | 连续方向移动；行动消耗按实际距离计算 |
+| y u b n / 小键盘 1 3 7 9 | 对角方向移动 |
+| ' 或 " | 切换跑步模式（移动行动点成本减半，消耗更多体力） |
 | i | 背包（左键选物品，右键打开动作，i/Esc 关闭） |
 | , | 捡起脚下的东西（CDDA 的 pickup） |
 | e | 搜索附近容器，或在撤离点开始撤离 |
@@ -53,7 +53,7 @@ The presets are in `export_presets.cfg`: `Web`, `Windows`, `Linux`.
 > 键位对齐 CDDA：`i` 背包、`.` 等待、`,` 捡东西、`e` 交互，都来自
 > `data/raw/keybindings.json`。移动支持八方向，装备和物品动作从背包二级菜单选择。
 
-鼠标左键点击地面会自动寻路，点击容器会走过去搜索，点击敌人会攻击；地图右键检查目标。
+鼠标左键点击地面位置会显示路线和本回合预计停点，再沿路线自动移动；点击容器会走过去搜索，点击敌人会攻击；地图右键检查目标。
 R 打开整备页，勾选仓库物品后出发。背包中右键打开物品动作菜单，拖动物品到人形装备槽即可装备或换装。
 
 ## The run
@@ -66,8 +66,8 @@ R 打开整备页，勾选仓库物品后出发。背包中右键打开物品动
 
 ## Status
 
-Implemented: 48×32 town map, FOV + seen tiles, eight-way movement, mouse/keyboard
-controls, searchable loot containers, raid timer and extraction, persistent stash,
+Implemented: 48×32 town map, FOV + seen tiles, continuous-position movement with
+cell-based collision and A* mouse pathfinding, searchable loot containers, raid timer and extraction, persistent stash,
 food/water/meds, stamina and running, functional body/weapon/backpack equipment slots,
 weight/volume limits, item action menus, save/load, content validation and tests.
 
