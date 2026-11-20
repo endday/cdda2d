@@ -17,6 +17,7 @@ const FOV_RADIUS := 8
 const MONSTER_COST := 100     # 怪物一步/一爪的参考价格（实际按动作自己算）
 const SAVE_VERSION := 9
 const NEEDS_DEPLETION_PER_TURN := 1
+const NEEDS_DEPLETION_PERIOD := 2
 const NEEDS_ZERO_GRACE_TURNS := 5
 const AUTO_SUPPLY_THRESHOLD := 25
 const AUTO_SUPPLY_MOVE_COST := 50
@@ -739,14 +740,15 @@ func advance_turn() -> void:
 func _tick_needs() -> void:
 	if not player.alive:
 		return
-	var previous_hunger := player.hunger
-	var previous_thirst := player.thirst
-	player.hunger = maxi(0, player.hunger - NEEDS_DEPLETION_PER_TURN)
-	player.thirst = maxi(0, player.thirst - NEEDS_DEPLETION_PER_TURN)
-	if previous_hunger > AUTO_SUPPLY_THRESHOLD and player.hunger <= AUTO_SUPPLY_THRESHOLD:
-		_push_log("饱腹偏低，留意补给。")
-	if previous_thirst > AUTO_SUPPLY_THRESHOLD and player.thirst <= AUTO_SUPPLY_THRESHOLD:
-		_push_log("水分偏低，留意补给。")
+	if turn % NEEDS_DEPLETION_PERIOD == 0:
+		var previous_hunger := player.hunger
+		var previous_thirst := player.thirst
+		player.hunger = maxi(0, player.hunger - NEEDS_DEPLETION_PER_TURN)
+		player.thirst = maxi(0, player.thirst - NEEDS_DEPLETION_PER_TURN)
+		if previous_hunger > AUTO_SUPPLY_THRESHOLD and player.hunger <= AUTO_SUPPLY_THRESHOLD:
+			_push_log("饱腹偏低，留意补给。")
+		if previous_thirst > AUTO_SUPPLY_THRESHOLD and player.thirst <= AUTO_SUPPLY_THRESHOLD:
+			_push_log("水分偏低，留意补给。")
 	if player.infection > 0:
 		player.infection = mini(100, player.infection + 1)
 	if player.hunger <= 0:

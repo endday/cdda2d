@@ -119,8 +119,11 @@ func test_needs_tick() -> void:
 	world.player.hunger = 10
 	world.player.thirst = 10
 	world.advance_turn()
-	_expect(world.player.hunger == 9, "每回合饱腹应只下降 1 点，实际 %d" % world.player.hunger)
-	_expect(world.player.thirst == 9, "每回合水分应只下降 1 点，实际 %d" % world.player.thirst)
+	_expect(world.player.hunger == 9, "需求消耗回合饱腹应下降 1 点，实际 %d" % world.player.hunger)
+	_expect(world.player.thirst == 9, "需求消耗回合水分应下降 1 点，实际 %d" % world.player.thirst)
+	world.advance_turn()
+	_expect(world.player.hunger == 9 and world.player.thirst == 9,
+		"非需求消耗回合不应继续减少饱腹和水分")
 	world.player.hunger = 1
 	world.player.thirst = 1
 	world.advance_turn()
