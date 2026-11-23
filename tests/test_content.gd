@@ -21,6 +21,7 @@ func run() -> Array[String]:
 	_checks = 0
 
 	test_items_are_valid()
+	test_ranged_item_data_is_validated()
 	test_monsters_are_valid()
 	test_bad_item_is_reported()
 	test_bad_monster_is_reported()
@@ -53,6 +54,24 @@ func test_items_are_valid() -> void:
 	_expect(items.size() >= 20, "至少应该有 20 件物品，实际 %d" % items.size())
 	var spawn_problems := ContentDB.validate_references(World.SPAWN_ITEMS, items, "地面物品")
 	_expect(spawn_problems.is_empty(), "地面物品都该在 items.json 里：%s" % ", ".join(spawn_problems))
+	var ranged_problems := ContentDB.validate_ranged_references(_load("res://content/items.json"), items)
+	_expect(ranged_problems.is_empty(), "枪械弹药引用都应存在：%s" % ", ".join(ranged_problems))
+
+
+func test_ranged_item_data_is_validated() -> void:
+	var bad_gun := {
+		"id": "bad_gun",
+		"name": "坏枪",
+		"ranged": {"range": 0, "damage": 0, "accuracy": 120, "ammo": "missing_ammo"},
+	}
+	var problems := ContentDB.validate_items([bad_gun])
+	_expect(_has(problems, "ranged.range"), "应拒绝没有正射程的枪械")
+	_expect(_has(problems, "ranged.damage"), "应拒绝没有正伤害的枪械")
+	_expect(_has(problems, "ranged.accuracy"), "应拒绝超出范围的命中率")
+	_expect(
+		_has(ContentDB.validate_ranged_references([bad_gun], {}), "枪械弹药不存在"),
+		"应拒绝引用不存在弹药的枪械",
+	)
 
 
 func test_monsters_are_valid() -> void:

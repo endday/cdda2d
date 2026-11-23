@@ -425,6 +425,38 @@ class Wait extends Action:
 
 
 ## 近战。相邻才能打，结算交给 Combat（命中/伤害/护甲）。
+class Shoot extends Action:
+	var target: Actor
+
+	func _init(who: Actor) -> void:
+		id = "shoot"
+		label = "射击"
+		cost = 100
+		target = who
+
+	func can(actor: Variant, world: Variant) -> String:
+		return world.ranged_attack_error(actor, target)
+
+	func apply(actor: Variant, world: Variant) -> bool:
+		var weapon: Item = actor.wielded
+		var ranged: Dictionary = weapon.prototype(world.item_db).get("ranged", {})
+		var ammo_id := String(ranged.get("ammo", ""))
+		var ammunition: Item = actor.find_item(ammo_id)
+		actor.remove_item(ammunition)
+		var result: Dictionary = Combat.resolve_ranged(actor, target, world.item_db, world.rng)
+		var hit := bool(result.get("hit", false))
+		world.record_projectile(actor.free_pos, target.free_pos, hit)
+		if not hit:
+			world.log_message("你向%s开火，子弹打偏了。" % target.name)
+			return true
+		var amount := int(result.get("damage", 0))
+		target.take_damage(amount)
+		world.log_message("你击中%s，造成 %d 点伤害。" % [target.name, amount])
+		if not target.alive:
+			world.log_message("%s倒下了。" % target.name)
+		return true
+
+
 class Attack extends Action:
 	var target: Actor
 

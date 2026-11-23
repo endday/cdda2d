@@ -22,6 +22,8 @@ func run() -> Array[String]:
 
 	test_weapon_and_armor_values()
 	test_resolve_is_deterministic()
+	test_ranged_attack_uses_range_and_ammo()
+	test_ranged_attack_blocks_on_distance_and_walls()
 	test_player_kills_monster()
 	test_bump_attack_does_not_move()
 	test_monster_chases_player()
@@ -42,6 +44,9 @@ func _expect(condition: bool, message: String) -> void:
 func _items() -> Dictionary:
 	return {
 		"knife": {"id": "knife", "name": "小刀", "melee": {"damage": 6}},
+		"pistol": {"id": "pistol", "name": "手枪", "melee": {"damage": 10},
+			"ranged": {"damage": 18, "range": 8, "accuracy": 100, "ammo": "ammo"}},
+		"ammo": {"id": "ammo", "name": "手枪弹"},
 		"armor": {"id": "armor", "name": "护甲", "armor": 3},
 		"water": {"id": "water", "name": "水",
 			"use_methods": [{"type": "consume", "quench": 40}]},
@@ -102,6 +107,46 @@ func test_resolve_is_deterministic() -> void:
 	var second := Combat.resolve(world.player, monster, world.item_db, second_rng)
 	_expect(first["hit"] == second["hit"] and first["damage"] == second["damage"],
 		"同一个种子应该算出同一结果")
+
+
+func test_ranged_attack_uses_range_and_ammo() -> void:
+	var world := _world()
+	var monster := _take_monster(world, Vector2i(27, 13))
+	world.player.take_item(Item.new("pistol"))
+	world.player.wield_item(world.player.find_item("pistol"))
+	world.player.take_item(Item.new("ammo"))
+	world.player.moves = 100
+	world._update_fov()
+
+	_expect(world.ranged_attack_error(world.player, monster).is_empty(),
+		"可见且在射程内的目标应可射击")
+	_expect(world.player_attack(monster), "手枪射击动作应该成功")
+	_expect(not monster.alive or monster.hp < monster.hp_max, "命中的子弹应造成伤害")
+	_expect(not world.player.has_item("ammo"), "射击应消耗一发弹药")
+	_expect(world.projectile_serial == 1, "开火应记录一次弹道事件")
+	_expect(bool(world.last_projectile.get("hit", false)), "弹道事件应记录命中结果")
+	_expect(String(world.command_log.back().get("action", "")) == "shoot",
+		"命令日志应记录为射击")
+
+
+func test_ranged_attack_blocks_on_distance_and_walls() -> void:
+	var world := _world()
+	var monster := _take_monster(world, Vector2i(34, 13))
+	world.player.take_item(Item.new("pistol"))
+	world.player.wield_item(world.player.find_item("pistol"))
+	world.player.take_item(Item.new("ammo"))
+	world.player.moves = 100
+	world._update_fov()
+	_expect(world.ranged_attack_error(world.player, monster).contains("超出射程"),
+		"超出 8 格射程应拒绝开火")
+
+	monster.pos = Vector2i(27, 13)
+	world.map[13][25] = 1
+	world.visible[monster.cell_pos] = true
+	_expect(world.ranged_attack_error(world.player, monster).contains("遮挡"),
+		"墙体应阻挡弹道")
+	_expect(not world.player_attack(monster), "弹道被墙挡住时射击应失败")
+	_expect(world.player.has_item("ammo"), "无效射击不应消耗弹药")
 
 
 func test_player_kills_monster() -> void:

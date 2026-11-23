@@ -35,3 +35,21 @@ static func resolve(attacker: Actor, defender: Actor, item_db: Dictionary,
 	var raw := weapon_damage(attacker, item_db) + rng.randi_range(-1, 1)
 	var reduced := raw - armor_of(defender, item_db)
 	return {"hit": true, "damage": maxi(1, reduced)}
+
+
+## A firearm uses its own damage and accuracy values. Distance reduces accuracy beyond point-blank range.
+static func resolve_ranged(attacker: Actor, defender: Actor, item_db: Dictionary,
+		rng: RandomNumberGenerator) -> Dictionary:
+	var weapon := attacker.wielded
+	if weapon == null:
+		return {"hit": false, "damage": 0}
+	var ranged: Dictionary = weapon.prototype(item_db).get("ranged", {})
+	if ranged.is_empty():
+		return {"hit": false, "damage": 0}
+	var distance := attacker.free_pos.distance_to(defender.free_pos)
+	var accuracy := int(ranged.get("accuracy", 82)) - int(maxf(0.0, distance - 3.0) * 2.0)
+	if rng.randi_range(1, 100) > maxi(20, accuracy):
+		return {"hit": false, "damage": 0}
+	var raw := int(ranged.get("damage", 1)) + rng.randi_range(-2, 2)
+	var reduced := raw - armor_of(defender, item_db)
+	return {"hit": true, "damage": maxi(1, reduced)}

@@ -54,6 +54,19 @@ static func validate_items(entries: Array) -> Array[String]:
 				problems.append("items[%s] 的 melee 应该是对象" % item_id)
 			elif float((item["melee"] as Dictionary).get("damage", 0)) < 0.0:
 				problems.append("items[%s] 的 melee.damage 不能是负数" % item_id)
+		if item.has("ranged"):
+			if typeof(item["ranged"]) != TYPE_DICTIONARY:
+				problems.append("items[%s] 的 ranged 应该是对象" % item_id)
+			else:
+				var ranged: Dictionary = item["ranged"]
+				if float(ranged.get("range", 0)) <= 0.0:
+					problems.append("items[%s] 的 ranged.range 必须 > 0" % item_id)
+				if float(ranged.get("damage", 0)) <= 0.0:
+					problems.append("items[%s] 的 ranged.damage 必须 > 0" % item_id)
+				if int(ranged.get("accuracy", 0)) < 1 or int(ranged.get("accuracy", 0)) > 100:
+					problems.append("items[%s] 的 ranged.accuracy 必须在 1 到 100 之间" % item_id)
+				if String(ranged.get("ammo", "")).is_empty():
+					problems.append("items[%s] 的 ranged.ammo 不能为空" % item_id)
 		problems.append_array(_validate_use_methods(item_id, item.get("use_methods", [])))
 	return problems
 
@@ -151,4 +164,19 @@ static func validate_disassemble_references(entries: Array, known: Dictionary) -
 			var result_id := String((result as Dictionary).get("id", ""))
 			if not result_id.is_empty() and not known.has(result_id):
 				problems.append("物品 %s 的拆解产物不存在：%s" % [String(item.get("id", "")), result_id])
+	return problems
+
+
+static func validate_ranged_references(entries: Array, known: Dictionary) -> Array[String]:
+	var problems: Array[String] = []
+	for entry: Variant in entries:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var item: Dictionary = entry
+		var ranged: Variant = item.get("ranged", {})
+		if typeof(ranged) != TYPE_DICTIONARY:
+			continue
+		var ammo_id := String((ranged as Dictionary).get("ammo", ""))
+		if not ammo_id.is_empty() and not known.has(ammo_id):
+			problems.append("物品 %s 的枪械弹药不存在：%s" % [String(item.get("id", "")), ammo_id])
 	return problems

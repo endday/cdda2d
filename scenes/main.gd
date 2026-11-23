@@ -33,6 +33,8 @@ var raid_label: Label
 var load_label: Label
 var threat_label: Label
 var interaction_label: Label
+var raid_hint_title: Label
+var raid_hint_detail: Label
 var auto_supply_toggle: CheckButton
 var deployment_auto_supply_toggle: CheckButton
 var bottom_panel: Panel
@@ -83,6 +85,12 @@ var mouse_move_timer := 0.0
 var hover_cell := Vector2i(-999, -999)
 var mouse_search_container := false
 const MOUSE_MOVE_INTERVAL := 0.09
+const PROJECTILE_DURATION := 0.28
+var _seen_projectile_serial := 0
+var _projectile_time := 0.0
+var _projectile_from := Vector2.ZERO
+var _projectile_to := Vector2.ZERO
+var _projectile_hit := false
 
 ## 整体压一点冷色，别让 UltiCa 的木地板太橘。
 const TINT := Color(0.82, 0.85, 0.9)
@@ -150,6 +158,7 @@ func _validate_content(items: Array, monsters: Array) -> void:
 	problems.append_array(ContentDB.validate_items(items))
 	problems.append_array(ContentDB.validate_monsters(monsters))
 	problems.append_array(ContentDB.validate_disassemble_references(items, ContentDB.index_by_id(items)))
+	problems.append_array(ContentDB.validate_ranged_references(items, ContentDB.index_by_id(items)))
 	problems.append_array(
 		ContentDB.validate_references(World.SPAWN_ITEMS, ContentDB.index_by_id(items), "地面物品"))
 	for problem: String in problems:
@@ -241,8 +250,8 @@ func _build_ui() -> void:
 	threat_label = _label(raid_panel, "", Vector2(16, 64), 13, Color("#c3d0b9"))
 	load_label = _label(raid_panel, "", Vector2(16, 92), 12, Color("#9fd4c4"))
 	load_label.size = Vector2(300, 42)
-	_label(raid_panel, "操作提示", Vector2(16, 146), 11, Color("#76908c"))
-	_label(raid_panel, "左键移动/目标   右键查看   I 背包", Vector2(16, 164), 11, Color("#c3d0b9"))
+	raid_hint_title = _label(raid_panel, "操作提示", Vector2(16, 146), 11, Color("#76908c"))
+	raid_hint_detail = _label(raid_panel, "左键移动/目标   右键查看   I 背包", Vector2(16, 164), 11, Color("#c3d0b9"))
 
 	log_panel = _panel(ui_root, Rect2(18, 552, 620, 112))
 	log_label = _label(log_panel, "", Vector2(14, 8), 13, Color("#c3d0b9"))
@@ -817,6 +826,15 @@ func _refresh_ui() -> void:
 	var wielded_name := "空手" if p.wielded == null else world.item_name(p.wielded.type_id)
 	var offhand_name := "空" if p.offhand == null else world.item_name(p.offhand.type_id)
 	load_label.text = "主手 %s  副手 %s\n%s" % [wielded_name, offhand_name, _pack_summary()]
+	var ranged: Dictionary = {} if p.wielded == null else p.wielded.prototype(item_data).get("ranged", {})
+	if ranged.is_empty():
+		raid_hint_title.text = "操作提示"
+		raid_hint_detail.text = "左键移动/目标   右键查看   I 背包"
+	else:
+		raid_hint_title.text = "枪械"
+		raid_hint_detail.text = "射程 %d 格  ·  弹药 %d 发" % [
+			int(ranged.get("range", 0)), p.item_count(String(ranged.get("ammo", ""))),
+		]
 
 	var lines: Array[String] = []
 	var start := maxi(0, world.log_lines.size() - 4)
@@ -904,10 +922,26 @@ func _interaction_text() -> String:
 	var ground := world.items_at(world.player.cell_pos)
 	if not ground.is_empty():
 		messages.append("脚下有 %d 件物品，按 , 拾取" % ground.size())
+	if world.in_bounds(hover_cell) and world.visible.has(hover_cell):
+		var hovered_target := world.actor_at(hover_cell)
+		if hovered_target != null and hovered_target != world.player:
+			var ranged: Dictionary = {} if world.player.wielded == null else world.player.wielded.prototype(world.item_db).get("ranged", {})
+			if not ranged.is_empty():
+				var error := world.ranged_attack_error(world.player, hovered_target)
+				var distance := world.player.free_pos.distance_to(hovered_target.free_pos)
+				if error.is_empty():
+					messages.append("左键射击%s · 距离 %.1f / 射程 %d 格 · 弹药 %d 发" % [
+						hovered_target.name, distance, int(ranged.get("range", 0)),
+						world.player.item_count(String(ranged.get("ammo", ""))),
+					])
+				else:
+					messages.append("无法射击%s：%s" % [hovered_target.name, error])
+				return "\n".join(messages.slice(0, 2))
+			messages.append("附近有%s，点击目标或撞上去攻击" % hovered_target.name)
 	for delta: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 		var cell := world.player.cell_pos + delta
 		var target := world.actor_at(cell)
-		if target != null and target != world.player and world.visible.has(target.cell_pos):
+		if target != null and target != world.player and world.visible.has(target.cell_pos) and messages.size() < 2:
 			messages.append("附近有%s，点击目标或撞上去攻击" % target.name)
 	return "\n".join(messages.slice(0, 2))
 
@@ -1195,6 +1229,15 @@ func _item_summary(item: Item) -> String:
 				parts.append(String(m.get("type", "")))
 	if melee.has("damage"):
 		parts.append("伤害 %d" % int(melee["damage"]))
+	var ranged: Dictionary = proto.get("ranged", {})
+	if not ranged.is_empty():
+		var ammo_id := String(ranged.get("ammo", ""))
+		parts.append("射程 %d 格 · 远程伤害 %d · 弹药 %d 发" % [
+			int(ranged.get("range", 0)), int(ranged.get("damage", 0)),
+			world.player.item_count(ammo_id),
+		])
+	elif "AMMO" in Array(proto.get("flags", [])):
+		parts.append("单发弹药")
 	if proto.has("armor"):
 		parts.append("护甲 %d" % int(proto["armor"]))
 	if proto.has("weight") or proto.has("volume"):
@@ -1224,7 +1267,11 @@ func _process(delta: float) -> void:
 		var next_hover := _cell_from_mouse()
 		if next_hover != hover_cell:
 			hover_cell = next_hover
+			interaction_label.text = _interaction_text()
 			queue_redraw()
+	if _projectile_time > 0.0:
+		_projectile_time = maxf(0.0, _projectile_time - delta)
+		queue_redraw()
 	# 一格一格的位置用指数平滑抹成滑动，别让它跳。
 	var k: float = 1.0 - exp(-delta * MOVE_SMOOTH)
 	for actor: Actor in world.actors:
@@ -1311,6 +1358,7 @@ func _draw() -> void:
 		hover.append(hover[0])
 		draw_polyline(hover, Color(0.45, 0.78, 0.7, 0.72), 2.0)
 	_draw_move_preview()
+	_draw_projectile()
 
 
 func _draw_move_preview() -> void:
@@ -1323,6 +1371,17 @@ func _draw_move_preview() -> void:
 		if not world.in_bounds(destination_cell) or not world.visible.has(destination_cell):
 			return
 		destination_position = Vector2(destination_cell)
+	var target := world.actor_at(destination_cell)
+	if target != null and target != world.player and world.visible.has(target.cell_pos):
+		var can_shoot := world.ranged_attack_error(world.player, target).is_empty()
+		var color := Color("#eecb80") if can_shoot else Color("#d46b66")
+		var start := _shot_screen_position(world.player.free_pos)
+		var finish := _shot_screen_position(target.free_pos)
+		draw_line(start, finish, Color(color.r, color.g, color.b, 0.72), 2.0, true)
+		var target_outline := _diamond(_iso(target.cell_pos))
+		target_outline.append(target_outline[0])
+		draw_polyline(target_outline, color, 2.0)
+		return
 	var path := world.find_path(world.player.pos, destination_cell, world.player)
 	if path.is_empty():
 		return
@@ -1344,6 +1403,36 @@ func _draw_move_preview() -> void:
 		draw_arc(stop_screen, 9.0, 0.0, TAU, 24, Color(0.95, 0.79, 0.45, 0.95), 2.0, true)
 	var destination_screen := _iso(destination_position) + ground_offset
 	draw_circle(destination_screen, 4.0, Color(0.72, 0.95, 0.81, 0.92))
+
+
+func _start_projectile_animation() -> void:
+	if world.projectile_serial <= _seen_projectile_serial:
+		return
+	_seen_projectile_serial = world.projectile_serial
+	_projectile_from = world.last_projectile["from"]
+	_projectile_to = world.last_projectile["to"]
+	_projectile_hit = bool(world.last_projectile.get("hit", false))
+	_projectile_time = PROJECTILE_DURATION
+	queue_redraw()
+
+
+func _shot_screen_position(position: Vector2) -> Vector2:
+	return _iso(position) + Vector2(0, ISO_H / 2.0 - 26.0)
+
+
+func _draw_projectile() -> void:
+	if _projectile_time <= 0.0:
+		return
+	var progress := 1.0 - _projectile_time / PROJECTILE_DURATION
+	var start := _shot_screen_position(_projectile_from)
+	var finish := _shot_screen_position(_projectile_to)
+	var bullet_position := start.lerp(finish, progress)
+	var color := Color("#f5cf68") if _projectile_hit else Color("#e47c70")
+	draw_line(start, finish, Color(color.r, color.g, color.b, 0.28), 1.5, true)
+	draw_line(start, bullet_position, Color(color.r, color.g, color.b, 0.9), 3.0, true)
+	draw_circle(bullet_position, 4.0, color)
+	if progress > 0.85 and _projectile_hit:
+		draw_arc(finish, 8.0, 0.0, TAU, 20, Color(color.r, color.g, color.b, 1.0 - progress), 2.0, true)
 
 
 func _position_after_movement(route: PackedVector2Array, moves: int, moves_per_tile: float) -> Vector2:
@@ -1773,6 +1862,7 @@ func _execute_item_action(option: Dictionary) -> bool:
 
 func _after_action() -> void:
 	world.settle()
+	_start_projectile_animation()
 	if not profile_outcome_saved and (world.extracted or world.dead or world.raid_failed):
 		profile_stash = world.stash.duplicate()
 		_save_profile()
@@ -1784,6 +1874,8 @@ func _start_new_raid() -> void:
 	var auto_supply_enabled := world.auto_supply_enabled
 	world = World.new(item_data, monster_data)
 	world.auto_supply_enabled = auto_supply_enabled
+	_seen_projectile_serial = 0
+	_projectile_time = 0.0
 	world.stash = profile_stash.duplicate()
 	profile_outcome_saved = false
 	_visual.clear()

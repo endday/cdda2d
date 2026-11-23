@@ -44,6 +44,8 @@ var monster_db: Dictionary = {}      # id -> data
 var turn := 1
 var log_lines: Array[String] = []
 var command_log: Array[Dictionary] = []   # 回放用；见 docs/cdda-notes.md §8
+var projectile_serial := 0
+var last_projectile: Dictionary = {}
 var rng := RandomNumberGenerator.new()    # 战斗/AI 用；种子跟着 run_seed
 var run_seed := 0
 var raid_turns_left := RAID_DURATION
@@ -284,6 +286,8 @@ const SPAWN_ITEMS := [
 	{"id": "bandage", "pos": Vector2i(10, 8)},
 	{"id": "pistol", "pos": Vector2i(20, 5)},
 	{"id": "ammo", "pos": Vector2i(21, 5)},
+	{"id": "ammo", "pos": Vector2i(22, 5)},
+	{"id": "ammo", "pos": Vector2i(22, 6)},
 	{"id": "flashlight", "pos": Vector2i(18, 8)},
 	{"id": "tape", "pos": Vector2i(19, 5)},
 	{"id": "radio_part", "pos": Vector2i(35, 5)},
@@ -314,7 +318,7 @@ func _place_loot_containers() -> void:
 		{"id": "clinic_cache", "name": "诊所药柜", "pos": Vector2i(41, 6),
 			"loot": ["medkit", "antibiotics", "bandage"], "searched": false},
 		{"id": "armory_cache", "name": "警用装备箱", "pos": Vector2i(21, 4),
-			"loot": ["ammo", "knife", "helmet", "pants", "boots"], "searched": false},
+			"loot": ["ammo", "ammo", "ammo", "ammo", "knife", "helmet", "pants", "boots"], "searched": false},
 	]
 
 
@@ -495,7 +499,54 @@ func player_step(dx: int, dy: int) -> bool:
 
 
 func player_attack(target: Actor) -> bool:
+	var weapon := player.wielded
+	if target != null and target.alive and weapon != null:
+		var ranged: Dictionary = weapon.prototype(item_db).get("ranged", {})
+		if not ranged.is_empty():
+			var error := ranged_attack_error(player, target)
+			if error.is_empty():
+				return perform(player, Actions.Shoot.new(target))
+			var adjacent := absi(player.cell_pos.x - target.cell_pos.x) <= 1 \
+				and absi(player.cell_pos.y - target.cell_pos.y) <= 1
+			var ammo_id := String(ranged.get("ammo", ""))
+			if adjacent and not player.has_item(ammo_id):
+				return perform(player, Actions.Attack.new(target))
+			return perform(player, Actions.Shoot.new(target))
 	return perform(player, Actions.Attack.new(target))
+
+
+func ranged_attack_error(actor: Actor, target: Actor) -> String:
+	if target == null or not target.alive or target == actor:
+		return "那里没有可攻击的目标。"
+	if actor.wielded == null:
+		return "主手没有装备枪械。"
+	var ranged: Dictionary = actor.wielded.prototype(item_db).get("ranged", {})
+	if ranged.is_empty():
+		return "主手武器不能远程射击。"
+	var distance := actor.free_pos.distance_to(target.free_pos)
+	var range := float(ranged.get("range", 0.0))
+	if range <= 0.0:
+		return "这把枪没有有效射程。"
+	if distance > range:
+		return "目标超出射程（%.1f / %.0f 格）。" % [distance, range]
+	if not has_los(actor.cell_pos, target.cell_pos):
+		return "射线被墙体遮挡。"
+	if actor == player and not visible.has(target.cell_pos):
+		return "当前看不到目标。"
+	var ammo_id := String(ranged.get("ammo", ""))
+	if ammo_id.is_empty() or not actor.has_item(ammo_id):
+		return "没有可用弹药。"
+	return ""
+
+
+func record_projectile(from: Vector2, to: Vector2, hit: bool) -> void:
+	projectile_serial += 1
+	last_projectile = {
+		"serial": projectile_serial,
+		"from": from,
+		"to": to,
+		"hit": hit,
+	}
 
 
 func player_loot() -> bool:
